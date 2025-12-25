@@ -1,8 +1,7 @@
 # app/main.py
 """
-Main entry point for the Ollama Proxy Server.
-This version removes Alembic and uses SQLAlchemy's create_all
-to initialize the database on startup.
+Main entry point for the Exo Proxy Server.
+This version uses Beanie for MongoDB document management.
 """
 import logging
 import os
@@ -23,6 +22,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import RedirectResponse, Response
 
 from app.core.config import settings
@@ -32,9 +32,11 @@ from app.api.v1.routes.proxy import router as proxy_router
 from app.api.v1.routes.admin import router as admin_router
 from app.api.v1.routes.playground_chat import router as playground_chat_router
 from app.api.v1.routes.playground_embedding import router as playground_embedding_router
-from app.database.session import AsyncSessionLocal, engine
-from app.database.base import Base
-from app.database.migrations import run_all_migrations
+from app.api.v1.routes.exo_proxy import router as exo_proxy_router
+from app.api.v1.routes.api_tester import router as api_tester_router
+from app.database.session import database
+from app.database.models import User, UserRole, APIKey, UsageLog, ExoServer, AppSettings, ModelMetadata
+from beanie import init_beanie
 from app.crud import user_crud, server_crud, settings_crud
 from app.schema.user import UserCreate
 from app.schema.server import ServerCreate
@@ -48,8 +50,7 @@ os.environ.setdefault("PASSLIB_DISABLE_WARNINGS", "1")
 _db_initialized = False
 async def init_db():
     """
-    Creates all database tables based on the SQLAlchemy models.
-    Runs migrations first to ensure backward compatibility with older database schemas.
+    Initializes Beanie with the MongoDB database and document models.
     This function is designed to run only once.
     """
     global _db_initialized
@@ -57,33 +58,88 @@ async def init_db():
         logger.debug("Database already initialized, skipping.")
         return
 
-    logger.info("Initializing database schema...")
+    logger.info("Initializing Beanie with MongoDB...")
 
-    # Run migrations first to add any missing columns to existing tables
-    await run_all_migrations(engine)
-
-    # Then create any missing tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await init_beanie(database=database, document_models=[User, APIKey, UsageLog, ExoServer, AppSettings, ModelMetadata])
+    
+    # Ensure unique indexes are created to prevent duplicate users
+    try:
+        await database.User.create_index([("username", 1)], unique=True)
+        logger.debug("Ensured unique index on User.username")
+    except Exception as e:
+        # Index might already exist, which is fine
+        logger.debug(f"Unique index creation note: {e}")
     
     _db_initialized = True
-    logger.info("Database schema is ready.")
+    logger.info("Beanie is ready.")
 
-from sqlalchemy.exc import IntegrityError
+async def migrate_user_roles() -> None:
+    """
+    Migrate existing users to use the new role-based system.
+    This should only run once when upgrading to the new role system.
+    """
+    db = database
+    logger.info("Checking if user role migration is needed...")
+
+    try:
+        # Find users that don't have the role field set
+        users_without_role = await User.find({"role": {"$exists": False}}).to_list(length=None)
+
+        if not users_without_role:
+            logger.info("All users already have roles assigned – skipping migration.")
+            return
+
+        logger.info(f"Found {len(users_without_role)} users that need role migration.")
+
+        migrated_count = 0
+        for user in users_without_role:
+            # Determine role based on is_admin field
+            if user.is_admin:
+                user.role = UserRole.ADMIN
+                logger.info(f"Setting role ADMIN for user {user.username}")
+            else:
+                user.role = UserRole.USER
+                logger.info(f"Setting role USER for user {user.username}")
+
+            # Save the updated user
+            await user.save()
+            migrated_count += 1
+
+        logger.info(f"Successfully migrated {migrated_count} users to role-based system.")
+
+    except Exception as e:
+        logger.error(f"Error during user role migration: {e}")
+
 
 async def create_initial_admin_user() -> None:
-    async with AsyncSessionLocal() as db:
-        admin_user = await user_crud.get_user_by_username(db, username=settings.ADMIN_USER)
-        if admin_user:
-            logger.info("Admin user already exists – skipping creation.")
-            return
-        logger.info("Admin user not found, creating one.")
-        user_in = UserCreate(username=settings.ADMIN_USER, password=settings.ADMIN_PASSWORD)
-        try:
-            await user_crud.create_user(db, user=user_in, is_admin=True)
-            logger.info("Admin user created successfully.")
-        except IntegrityError:
-            logger.info("Admin user was created concurrently by another worker.")
+    """
+    Create the initial admin user if it doesn't exist.
+    This is safe to run concurrently from multiple workers - MongoDB's unique
+    constraint on username will prevent duplicates.
+    """
+    db = database
+    
+    # First check if admin exists (optimization to avoid unnecessary operations)
+    admin_user = await user_crud.get_user_by_username(db, username=settings.ADMIN_USER)
+    if admin_user:
+        logger.info("Admin user already exists – skipping creation.")
+        return
+    
+    # Try to create the admin user
+    logger.info("Admin user not found, attempting to create one.")
+    user_in = UserCreate(username=settings.ADMIN_USER, password=settings.ADMIN_PASSWORD)
+    try:
+        await user_crud.create_user(db, user=user_in, role=UserRole.ADMIN)
+        logger.info("Admin user created successfully.")
+    except ValueError as e:
+        # This is expected if another worker created the user first
+        logger.info(f"Admin user already exists (created by another worker): {e}")
+    except Exception as e:
+        # Handle MongoDB duplicate key error (pymongo.errors.DuplicateKeyError)
+        if "duplicate" in str(e).lower() or "E11000" in str(e):
+            logger.info("Admin user already exists (race condition handled).")
+        else:
+            logger.error(f"Unexpected error creating admin user: {e}", exc_info=True)
 
 async def periodic_model_refresh(app: FastAPI) -> None:
     """
@@ -102,8 +158,8 @@ async def periodic_model_refresh(app: FastAPI) -> None:
             await asyncio.sleep(interval_seconds)
 
             logger.info("Running periodic model refresh for all servers...")
-            async with AsyncSessionLocal() as db:
-                results = await server_crud.refresh_all_server_models(db)
+            db = database
+            results = await server_crud.refresh_all_server_models(db)
 
             logger.info(
                 f"Model refresh completed: {results['success']}/{results['total']} servers updated successfully"
@@ -124,7 +180,7 @@ async def periodic_model_refresh(app: FastAPI) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ---------- Startup ----------
-    logger.info("Starting up Ollama Proxy Server…")
+    logger.info("Starting up Exo Proxy Server…")
     
     # Ensure directories exist
     uploads_dir = Path("app/static/uploads")
@@ -140,16 +196,33 @@ async def lifespan(app: FastAPI):
     logger.info(f"Benchmarks directory is at: {benchmarks_dir.resolve()}")
 
     if settings.ADMIN_PASSWORD == "changeme":
-        logger.critical("FATAL: The admin password is set to the default value 'changeme'.")
-        logger.critical("Please change ADMIN_PASSWORD in your .env file or run the setup wizard and restart.")
-        sys.exit(1)
+        logger.warning("Admin password is set to the default value 'changeme'.")
+        logger.warning("Set ADMIN_PASSWORD in .env (recommended) and restart.")
 
     await init_db()
     
     # --- NEW: Load settings from DB ---
-    async with AsyncSessionLocal() as db:
-        db_settings_obj = await settings_crud.create_initial_settings(db)
-        app.state.settings = AppSettingsModel.model_validate(db_settings_obj.settings_data)
+    db_settings_obj = await settings_crud.create_initial_settings(database)
+    app_settings = AppSettingsModel.model_validate(db_settings_obj.settings_data)
+
+    # Optional runtime overrides (useful for container deployments)
+    # These do not persist to the DB.
+    cooldown_env = os.getenv("BACKEND_FAILURE_COOLDOWN_SECONDS")
+    if cooldown_env:
+        try:
+            app_settings.backend_failure_cooldown_seconds = int(cooldown_env)
+        except ValueError:
+            logger.warning("Invalid BACKEND_FAILURE_COOLDOWN_SECONDS; expected int")
+
+    app.state.settings = app_settings
+
+    # Run user role migration (safe to run multiple times)
+    await migrate_user_roles()
+    
+    # Clean up any duplicate users that might exist from previous versions
+    cleanup_result = await user_crud.ensure_user_uniqueness(database)
+    if cleanup_result["duplicates_removed"] > 0:
+        logger.info(f"Cleaned up {cleanup_result['duplicates_removed']} duplicate user(s)")
 
     await create_initial_admin_user()
 
@@ -181,8 +254,7 @@ async def lifespan(app: FastAPI):
 
     # Do initial model refresh on startup
     logger.info("Performing initial model refresh on startup...")
-    async with AsyncSessionLocal() as db:
-        initial_results = await server_crud.refresh_all_server_models(db)
+    initial_results = await server_crud.refresh_all_server_models(database)
     logger.info(f"Initial model refresh: {initial_results['success']}/{initial_results['total']} servers updated")
 
     yield
@@ -203,13 +275,28 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="A secure, high‑performance proxy and load balancer for Ollama.",
+    description="A secure, high‑performance proxy and load balancer for Exo.",
     redoc_url=None,
     openapi_url="/api/v1/openapi.json",
     lifespan=lifespan,
 )
 
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["proxy.local", "localhost"])
+
+@app.middleware("http")
+async def proxy_scheme_middleware(request: Request, call_next):
+    """Handle X-Forwarded-Proto header to set correct scheme for URL generation"""
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto:
+        # Modify the request's URL to use the forwarded scheme
+        request.scope["scheme"] = forwarded_proto
+        # Also update the URL if it exists
+        if "url" in request.scope and hasattr(request.scope["url"], "_replace"):
+            request.scope["url"] = request.scope["url"]._replace(scheme=forwarded_proto)
+
+    response = await call_next(request)
+    return response
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -232,10 +319,12 @@ async def add_security_headers(request: Request, call_next):
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])
-app.include_router(proxy_router, prefix="/api", tags=["Ollama Proxy"])
 app.include_router(admin_router, prefix="/admin", tags=["Admin UI"], include_in_schema=False)
 app.include_router(playground_chat_router, prefix="/admin", tags=["Admin UI"], include_in_schema=False)
 app.include_router(playground_embedding_router, prefix="/admin", tags=["Admin UI"], include_in_schema=False)
+app.include_router(exo_proxy_router, prefix="/admin", tags=["EXO API Tester"], include_in_schema=False)  # Admin-only, no API key required
+app.include_router(api_tester_router, prefix="/admin", tags=["API Tester"], include_in_schema=False)  # Admin-only, serves JavaScript for API tester
+app.include_router(proxy_router, prefix="/api", tags=["Exo Proxy"])  # Catch-all router should be last
 
 @app.get("/", include_in_schema=False, summary="Root")
 def read_root():
@@ -252,32 +341,41 @@ if __name__ == "__main__":
         port = settings.PROXY_PORT
         ssl_keyfile = None
         ssl_certfile = None
-        
+
         try:
             # Run init_db once to ensure DB exists for reading SSL settings.
             await init_db()
-            async with AsyncSessionLocal() as db:
-                db_settings_obj = await settings_crud.get_app_settings(db)
-                if not db_settings_obj:
-                    db_settings_obj = await settings_crud.create_initial_settings(db)
+            db_settings_obj = await settings_crud.get_app_settings(database)
+            if not db_settings_obj:
+                db_settings_obj = await settings_crud.create_initial_settings(database)
 
-                if db_settings_obj:
-                    app_settings = AppSettingsModel.model_validate(db_settings_obj.settings_data)
-                    
-                    if app_settings.ssl_keyfile and app_settings.ssl_certfile:
-                        key_path = Path(app_settings.ssl_keyfile)
-                        cert_path = Path(app_settings.ssl_certfile)
-                        
-                        if key_path.is_file() and cert_path.is_file():
-                            ssl_keyfile = str(key_path)
-                            ssl_certfile = str(cert_path)
-                        else:
-                            if not key_path.is_file():
-                                logger.warning(f"SSL key file not found at '{key_path}'. Starting without HTTPS.")
-                            if not cert_path.is_file():
-                                logger.warning(f"SSL cert file not found at '{cert_path}'. Starting without HTTPS.")
+            if db_settings_obj:
+                app_settings = AppSettingsModel.model_validate(
+                    db_settings_obj.settings_data
+                )
+                # Only attempt SSL configuration if both values are present
+                if app_settings.ssl_keyfile and app_settings.ssl_certfile:
+                    key_path = Path(app_settings.ssl_keyfile)
+                    cert_path = Path(app_settings.ssl_certfile)
+
+                    if key_path.is_file() and cert_path.is_file():
+                        ssl_keyfile = str(key_path)
+                        ssl_certfile = str(cert_path)
+                    else:
+                        if not key_path.is_file():
+                            logger.warning(
+                                f"SSL key file not found at '{key_path}'. Starting without HTTPS."
+                            )
+                        if not cert_path.is_file():
+                            logger.warning(
+                                f"SSL cert file not found at '{cert_path}'. Starting without HTTPS."
+                            )
         except Exception as e:
-                logger.info(f"Could not load SSL settings from DB (this is normal on first run). Reason: {e}")
+            logger.info(
+                "Could not load SSL settings from DB "
+                "(this is normal on first run). Reason: %s",
+                e,
+            )
 
         # --- User-friendly startup banner ---
         protocol = "https" if ssl_keyfile and ssl_certfile else "http"
@@ -285,7 +383,7 @@ if __name__ == "__main__":
         # This function will be called after Uvicorn starts up
         def after_start():
             print("\n" + "="*60)
-            print("🚀 Ollama Proxy Fortress is running! 🚀")
+            print("🚀 Exo Proxy Fortress is running! 🚀")
             print("="*60)
             print(f"✅ Version: {settings.APP_VERSION}")
             print(f"✅ Mode: {'Production (HTTPS)' if protocol == 'https' else 'Development (HTTP)'}")

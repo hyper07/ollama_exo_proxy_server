@@ -12,7 +12,7 @@ import httpx
 
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database.session import get_db
 from app.database.models import User
@@ -43,21 +43,24 @@ class BenchmarkRequest(BaseModel):
 # --- Helper Function ---
 async def get_embedding(
     http_client: httpx.AsyncClient, 
-    server: "OllamaServer", 
+    server: "ExoServer", 
     model_name: str, 
     prompt: str
 ) -> List[float]:
     """Helper to get a single embedding from a server."""
     from app.crud.server_crud import _get_auth_headers
+    from app.database.models import ExoServer
     headers = _get_auth_headers(server)
     try:
         if server.server_type == 'vllm':
-            from app.core.vllm_translator import translate_ollama_to_vllm_embeddings, translate_vllm_to_ollama_embeddings
+            from app.core.vllm_translator import translate_exo_to_vllm_embeddings, translate_vllm_to_exo_embeddings
             url = f"{server.url.rstrip('/')}/v1/embeddings"
-            payload = translate_ollama_to_vllm_embeddings({"model": model_name, "prompt": prompt})
+            payload = translate_exo_to_vllm_embeddings({"model": model_name, "prompt": prompt})
             response = await http_client.post(url, json=payload, timeout=60.0, headers=headers)
             response.raise_for_status()
-            return translate_vllm_to_ollama_embeddings(response.json())["embedding"]
+            vllm_response = response.json()
+            exo_response = translate_vllm_to_exo_embeddings(vllm_response)
+            return exo_response.get("embedding", [])
         else: # Ollama
             url = f"{server.url.rstrip('/')}/api/embeddings"
             payload = {"model": model_name, "prompt": prompt}
@@ -76,7 +79,7 @@ async def get_embedding(
 @router.get("/embedding-playground", response_class=HTMLResponse, name="admin_embedding_playground")
 async def admin_embedding_playground_ui(
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncIOMotorDatabase = Depends(get_db),
     admin_user: User = Depends(require_admin_user)
 ):
     from app.api.v1.dependencies import get_csrf_token
@@ -106,7 +109,7 @@ async def admin_get_prebuilt_benchmarks(admin_user: User = Depends(require_admin
 async def admin_run_embedding_benchmark(
     request_data: BenchmarkRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncIOMotorDatabase = Depends(get_db),
     admin_user: User = Depends(require_admin_user),
     csrf_valid: bool = Depends(validate_csrf_token_header)
 ):

@@ -1,7 +1,7 @@
 import logging
 from fastapi import Depends, HTTPException, status, Request, Form, Header
 from fastapi.security import APIKeyHeader
-from sqlalchemy.ext.asyncio import AsyncSession
+from motor.motor_asyncio import AsyncIOMotorDatabase
 import redis.asyncio as redis
 import time
 import secrets
@@ -78,13 +78,13 @@ async def ip_filter(request: Request, settings: AppSettingsModel = Depends(get_s
 # --- API Key Authentication Dependency ---
 async def get_valid_api_key(
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncIOMotorDatabase = Depends(get_db),
     auth_header: str = Depends(api_key_header),
 ) -> APIKey:
     if not auth_header:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header is missing",
+            detail="Authorization header is missing1",
         )
 
     if not auth_header.startswith("Bearer "):

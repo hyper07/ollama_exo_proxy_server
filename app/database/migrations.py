@@ -66,28 +66,28 @@ async def add_column_if_missing(
         return False
 
 
-async def migrate_ollama_servers_table(engine: AsyncEngine) -> None:
+async def migrate_exo_servers_table(engine: AsyncEngine) -> None:
     """
-    Migrate the ollama_servers table to add new columns if they don't exist.
+    Migrate the exo_servers table to add new columns if they don't exist.
     This ensures backward compatibility with older database schemas.
     """
-    logger.info("Checking ollama_servers table for missing columns...")
+    logger.info("Checking exo_servers table for missing columns...")
 
     # Check if table exists first
     async with engine.begin() as conn:
         result = await conn.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table' AND name='ollama_servers'")
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='exo_servers'")
         )
         table_exists = result.fetchone() is not None
 
     if not table_exists:
-        logger.info("Table 'ollama_servers' does not exist yet, skipping migration")
+        logger.info("Table 'exo_servers' does not exist yet, skipping migration")
         return
 
     # Add available_models column if missing
     await add_column_if_missing(
         engine,
-        "ollama_servers",
+        "exo_servers",
         "available_models",
         "JSON"
     )
@@ -95,12 +95,12 @@ async def migrate_ollama_servers_table(engine: AsyncEngine) -> None:
     # Add models_last_updated column if missing
     await add_column_if_missing(
         engine,
-        "ollama_servers",
+        "exo_servers",
         "models_last_updated",
         "DATETIME"
     )
 
-    logger.info("ollama_servers table migration complete")
+    logger.info("exo_servers table migration complete")
 
 
 async def migrate_api_keys_table(engine: AsyncEngine) -> None:
@@ -375,11 +375,11 @@ async def run_all_migrations(engine: AsyncEngine) -> None:
         # Define expected schemas for all tables
         # This is the single source of truth for what columns should exist
         table_schemas = {
-            "ollama_servers": {
+            "exo_servers": {
                 "available_models": "JSON",
                 "models_last_updated": "DATETIME",
                 "last_error": "VARCHAR",
-                "server_type": "VARCHAR DEFAULT 'ollama' NOT NULL",
+                "server_type": "VARCHAR DEFAULT 'exo' NOT NULL",
                 "encrypted_api_key": "VARCHAR",
             },
             "api_keys": {

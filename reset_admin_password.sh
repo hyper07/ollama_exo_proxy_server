@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ====================================================================
 #
-#   Ollama Proxy Fortress - Admin Password Reset Runner
+#   EXO Proxy Fortress - Admin Password Reset Runner
 #
 # ====================================================================
 

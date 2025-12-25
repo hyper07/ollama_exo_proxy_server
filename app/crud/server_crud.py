@@ -1,6 +1,5 @@
-from sqlalchemy.future import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.database.models import OllamaServer
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from app.database.models import ExoServer
 from app.schema.server import ServerCreate, ServerUpdate
 from app.core.encryption import encrypt_data, decrypt_data
 import httpx
@@ -12,7 +11,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
-def _get_auth_headers(server: OllamaServer) -> Dict[str, str]:
+def _get_auth_headers(server: ExoServer) -> Dict[str, str]:
     headers = {}
     if server.encrypted_api_key:
         api_key = decrypt_data(server.encrypted_api_key)
@@ -20,39 +19,33 @@ def _get_auth_headers(server: OllamaServer) -> Dict[str, str]:
             headers["Authorization"] = f"Bearer {api_key}"
     return headers
 
-async def get_server_by_id(db: AsyncSession, server_id: int) -> OllamaServer | None:
-    result = await db.execute(select(OllamaServer).filter(OllamaServer.id == server_id))
-    return result.scalars().first()
+async def get_server_by_id(db: AsyncIOMotorDatabase, server_id: str) -> ExoServer | None:
+    return await ExoServer.get(server_id)
 
-async def get_server_by_url(db: AsyncSession, url: str) -> OllamaServer | None:
-    result = await db.execute(select(OllamaServer).filter(OllamaServer.url == url))
-    return result.scalars().first()
+async def get_server_by_url(db: AsyncIOMotorDatabase, url: str) -> ExoServer | None:
+    return await ExoServer.find_one(ExoServer.url == url)
 
-async def get_server_by_name(db: AsyncSession, name: str) -> OllamaServer | None:
-    result = await db.execute(select(OllamaServer).filter(OllamaServer.name == name))
-    return result.scalars().first()
+async def get_server_by_name(db: AsyncIOMotorDatabase, name: str) -> ExoServer | None:
+    return await ExoServer.find_one(ExoServer.name == name)
 
-async def get_servers(db: AsyncSession, skip: int = 0, limit: Optional[int] = None) -> list[OllamaServer]:
-    query = select(OllamaServer).order_by(OllamaServer.created_at.desc()).offset(skip)
+async def get_servers(db: AsyncIOMotorDatabase, skip: int = 0, limit: Optional[int] = None) -> list[ExoServer]:
+    query = ExoServer.find().sort(-ExoServer.created_at).skip(skip)
     if limit is not None:
         query = query.limit(limit)
-    result = await db.execute(query)
-    return result.scalars().all()
+    return await query.to_list()
 
-async def create_server(db: AsyncSession, server: ServerCreate) -> OllamaServer:
+async def create_server(db: AsyncIOMotorDatabase, server: ServerCreate) -> ExoServer:
     encrypted_key = encrypt_data(server.api_key) if server.api_key else None
-    db_server = OllamaServer(
+    db_server = ExoServer(
         name=server.name, 
         url=str(server.url), 
         server_type=server.server_type,
         encrypted_api_key=encrypted_key
     )
-    db.add(db_server)
-    await db.commit()
-    await db.refresh(db_server)
+    await db_server.insert()
     return db_server
 
-async def update_server(db: AsyncSession, server_id: int, server_update: ServerUpdate) -> OllamaServer | None:
+async def update_server(db: AsyncIOMotorDatabase, server_id: str, server_update: ServerUpdate) -> ExoServer | None:
     db_server = await get_server_by_id(db, server_id)
     if not db_server:
         return None
@@ -73,24 +66,20 @@ async def update_server(db: AsyncSession, server_id: int, server_update: ServerU
                 setattr(db_server, key, str(value))
             else:
                 setattr(db_server, key, value)
-            
-    await db.commit()
-    await db.refresh(db_server)
+    
+    await db_server.save()
     return db_server
 
 
-async def delete_server(db: AsyncSession, server_id: int) -> OllamaServer | None:
-    result = await db.execute(select(OllamaServer).filter(OllamaServer.id == server_id))
-    server = result.scalars().first()
+async def delete_server(db: AsyncIOMotorDatabase, server_id: str) -> ExoServer | None:
+    server = await get_server_by_id(db, server_id)
     if server:
-        await db.delete(server)
-        await db.commit()
+        await server.delete()
     return server
 
-async def fetch_and_update_models(db: AsyncSession, server_id: int) -> dict:
+async def fetch_and_update_models(db: AsyncIOMotorDatabase, server_id: str) -> dict:
     """
-    Fetches the list of available models from a server and updates the database.
-    Handles both Ollama and vLLM (OpenAI-compatible) servers.
+    Fetches the list of available models from an EXO server and updates the database.
 
     Returns a dict with 'success' (bool), 'models' (list), and optionally 'error' (str)
     """
@@ -98,51 +87,51 @@ async def fetch_and_update_models(db: AsyncSession, server_id: int) -> dict:
     if not server:
         return {"success": False, "error": "Server not found", "models": []}
     
+    if server.server_type != "exo":
+        return {"success": False, "error": "Only EXO servers are supported", "models": []}
+    
     headers = _get_auth_headers(server)
 
     try:
         models = []
         async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
-            if server.server_type == "vllm":
-                endpoint_url = f"{server.url.rstrip('/')}/v1/models"
-                response = await client.get(endpoint_url)
-                response.raise_for_status()
-                data = response.json()
-                models_data = data.get("data", [])
-                for model in models_data:
-                    model_id = model.get("id")
-                    if not model_id: continue
-                    
-                    family = model_id.split(':')[0].split('-')[0] # Best guess for family
+            # EXO uses /v1/models endpoint with OpenAI-compatible format
+            endpoint_url = f"{server.url.rstrip('/')}/v1/models"
+            response = await client.get(endpoint_url)
+            response.raise_for_status()
+            data = response.json()
+            models_data = data.get("data", [])
+            
+            for model in models_data:
+                model_id = model.get("id")  # short_id like "llama-3.2-1b"
+                model_name = model.get("name", model_id)
+                hf_id = model.get("hugging_face_id", model_id)
+                if not model_id: 
+                    continue
+                
+                family = model_id.split(':')[0].split('-')[0] if model_id else "unknown"
 
-                    models.append({
-                        "name": model_id,
-                        "size": 0,  # Not available from vLLM API
-                        "modified_at": datetime.datetime.fromtimestamp(
-                            model.get("created", 0), tz=datetime.timezone.utc
-                        ).isoformat(),
-                        "digest": model_id, # Use ID as a stand-in for digest
-                        "details": {
-                            "parent_model": "",
-                            "format": "vllm",
-                            "family": family,
-                            "families": [family] if family else None,
-                            "parameter_size": "N/A",
-                            "quantization_level": "N/A"
-                        }
-                    })
-            else:  # Default to "ollama"
-                endpoint_url = f"{server.url.rstrip('/')}/api/tags"
-                response = await client.get(endpoint_url)
-                response.raise_for_status()
-                data = response.json()
-                models = data.get("models", [])
+                models.append({
+                    "name": model_id,
+                    "size": model.get("storage_size_megabytes", 0) * 1024 * 1024,  # Convert MB to bytes
+                    "modified_at": datetime.datetime.fromtimestamp(
+                        model.get("created", 0), tz=datetime.timezone.utc
+                    ).isoformat(),
+                    "digest": hf_id,  # Use HuggingFace ID as digest
+                    "details": {
+                        "parent_model": "",
+                        "format": "exo",
+                        "family": family,
+                        "families": [family] if family else None,
+                        "parameter_size": model.get("context_length", "N/A"),
+                        "quantization_level": "N/A"
+                    }
+                })
         
         server.available_models = models
         server.models_last_updated = datetime.datetime.utcnow()
         server.last_error = None
-        await db.commit()
-        await db.refresh(server)
+        await server.save()
 
         logger.info(f"Successfully fetched {len(models)} models from {server.server_type} server '{server.name}'")
         return {"success": True, "models": models, "error": None}
@@ -152,18 +141,18 @@ async def fetch_and_update_models(db: AsyncSession, server_id: int) -> dict:
         logger.error(f"Failed to fetch models from server '{server.name}': {error_msg}")
         server.last_error = error_msg
         server.available_models = None
-        await db.commit()
+        await server.save()
         return {"success": False, "error": error_msg, "models": []}
     except Exception as e:
         error_msg = f"Unexpected error: {str(e)}"
         logger.error(f"Failed to fetch models from server '{server.name}': {error_msg}")
         server.last_error = error_msg
         server.available_models = None
-        await db.commit()
+        await server.save()
         return {"success": False, "error": error_msg, "models": []}
 
 
-async def pull_model_on_server(http_client: httpx.AsyncClient, server: OllamaServer, model_name: str) -> dict:
+async def pull_model_on_server(http_client: httpx.AsyncClient, server: ExoServer, model_name: str) -> dict:
     """Pulls a model on a specific Ollama server."""
     if server.server_type == 'vllm':
         return {"success": False, "message": "Pulling models is not supported for vLLM servers."}
@@ -194,7 +183,7 @@ async def pull_model_on_server(http_client: httpx.AsyncClient, server: OllamaSer
         logger.error(f"{error_msg} on server '{server.name}'")
         return {"success": False, "message": error_msg}
 
-async def delete_model_on_server(http_client: httpx.AsyncClient, server: OllamaServer, model_name: str) -> dict:
+async def delete_model_on_server(http_client: httpx.AsyncClient, server: ExoServer, model_name: str) -> dict:
     """Deletes a model from a specific Ollama server."""
     if server.server_type == 'vllm':
         return {"success": False, "message": "Deleting models is not supported for vLLM servers."}
@@ -222,7 +211,7 @@ async def delete_model_on_server(http_client: httpx.AsyncClient, server: OllamaS
         logger.error(f"{error_msg} on server '{server.name}'")
         return {"success": False, "message": error_msg}
 
-async def load_model_on_server(http_client: httpx.AsyncClient, server: OllamaServer, model_name: str) -> dict:
+async def load_model_on_server(http_client: httpx.AsyncClient, server: ExoServer, model_name: str) -> dict:
     """Sends a dummy request to a server to load a model into memory."""
     if server.server_type == 'vllm':
         return {"success": False, "message": "Explicit model loading is not applicable for vLLM servers."}
@@ -249,7 +238,7 @@ async def load_model_on_server(http_client: httpx.AsyncClient, server: OllamaSer
         logger.error(f"{error_msg} on server '{server.name}'")
         return {"success": False, "message": error_msg}
 
-async def unload_model_on_server(http_client: httpx.AsyncClient, server: OllamaServer, model_name: str) -> dict:
+async def unload_model_on_server(http_client: httpx.AsyncClient, server: ExoServer, model_name: str) -> dict:
     """Sends a request to a server to unload a model from memory."""
     if server.server_type == 'vllm':
         return {"success": False, "message": "Explicit model unloading is not applicable for vLLM servers."}
@@ -279,7 +268,7 @@ async def unload_model_on_server(http_client: httpx.AsyncClient, server: OllamaS
         logger.error(f"{error_msg} on server '{server.name}'")
         return {"success": False, "message": error_msg}
 
-async def get_servers_with_model(db: AsyncSession, model_name: str) -> list[OllamaServer]:
+async def get_servers_with_model(db: AsyncIOMotorDatabase, model_name: str) -> list[ExoServer]:
     """
     Get all active servers that have the specified model available, using flexible matching.
     """
@@ -305,9 +294,33 @@ async def get_servers_with_model(db: AsyncSession, model_name: str) -> list[Olla
 
 def is_embedding_model(model_name: str) -> bool:
     """Heuristically determines if a model is for embeddings."""
-    return "embed" in model_name.lower()
+    name_lower = model_name.lower()
+    
+    # Direct embedding indicators
+    if "embed" in name_lower or "embedding" in name_lower:
+        return True
+    
+    # Common embedding model families and patterns
+    embedding_patterns = [
+        "bge-",           # BAAI General Embedding
+        "e5-",            # E5 models
+        "instructor-",    # Instructor models
+        "all-minilm",     # Sentence transformers
+        "all-mpnet",      # Sentence transformers
+        "sentence-transformers",
+        "text-embedding-",
+        "multilingual-e5-",
+        "gte-",           # General Text Embeddings
+        "jina-",          # Jina embeddings
+        "nomic-embed",    # Nomic embeddings
+        "mxbai-embed",    # MixedBread embeddings
+        "text2vec-",      # Text2Vec models
+        "paraphrase-",    # Paraphrase models (often used for embeddings)
+    ]
+    
+    return any(name_lower.startswith(pattern) or pattern in name_lower for pattern in embedding_patterns)
 
-async def get_all_available_model_names(db: AsyncSession, filter_type: Optional[str] = None) -> List[str]:
+async def get_all_available_model_names(db: AsyncIOMotorDatabase, filter_type: Optional[str] = None) -> List[str]:
     """
     Gets a unique, sorted list of all model names across all active servers.
     Can be filtered by type ('chat' or 'embedding').
@@ -342,7 +355,7 @@ async def get_all_available_model_names(db: AsyncSession, filter_type: Optional[
     
     return sorted(list(all_models))
 
-async def get_all_models_grouped_by_server(db: AsyncSession, filter_type: Optional[str] = None) -> Dict[str, List[str]]:
+async def get_all_models_grouped_by_server(db: AsyncIOMotorDatabase, filter_type: Optional[str] = None) -> Dict[str, List[str]]:
     """
     Gets all available model names, grouped by their server, and includes proxy-native models.
     """
@@ -380,66 +393,181 @@ async def get_all_models_grouped_by_server(db: AsyncSession, filter_type: Option
         if server_models:
             grouped_models[server.name] = sorted(server_models)
 
-    # Create a new dictionary to control order and add proxy-native models like 'auto'
+    # Create a new dictionary to control order
     final_grouped_models = {}
-    if filter_type == 'chat' or filter_type is None:
-        final_grouped_models["Proxy Features"] = ["auto"]
     
-    # Merge the server-specific models after the proxy features
+    # Merge the server-specific models
     final_grouped_models.update(grouped_models)
             
     return final_grouped_models
 
 
-async def get_active_models_all_servers(db: AsyncSession, http_client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+async def fetch_exo_server_state(http_client: httpx.AsyncClient, server: ExoServer) -> Dict[str, Any]:
     """
-    Fetches running models (`/api/ps`) from active Ollama servers and
-    lists available models from active vLLM servers as they are always 'active'.
+    Fetches the state from an EXO server, including running instances, topology, and tasks.
+    Uses the GET /state endpoint to retrieve instances.
+    Returns the state dict or an error dict.
+    """
+    if server.server_type != 'exo':
+        return {"success": False, "error": "Server is not an EXO server"}
+    
+    headers = _get_auth_headers(server)
+    # Get the base URL from the configured server and call /state endpoint
+    base_url = server.url.rstrip('/')
+    state_url = f"{base_url}/state"
+    
+    logger.info(f"Calling EXO /state endpoint for server '{server.name}' at: {state_url}")
+    
+    try:
+        response = await http_client.get(state_url, timeout=10.0, headers=headers)
+        response.raise_for_status()
+        state_data = response.json()
+        
+        # Validate that we got the expected structure
+        if not isinstance(state_data, dict):
+            error_msg = f"Invalid response format: expected dict, got {type(state_data)}"
+            logger.error(f"Invalid state response from EXO server '{server.name}': {error_msg}")
+            return {"success": False, "error": error_msg, "state": None}
+        
+        # Log the structure we received
+        instances = state_data.get("instances", {})
+        logger.info(f"Received state from '{server.name}': {len(instances)} instances found")
+        if instances:
+            # Log first instance structure for debugging
+            first_instance_id = list(instances.keys())[0]
+            first_instance = instances[first_instance_id]
+            logger.debug(f"Sample instance structure from '{server.name}': instance_id={first_instance_id}, keys={list(first_instance.keys()) if isinstance(first_instance, dict) else type(first_instance)}")
+        
+        return {"success": True, "state": state_data, "error": None}
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP {e.response.status_code} error fetching EXO state from {state_url}: {e.response.text[:200]}"
+        logger.error(f"Failed to fetch state from EXO server '{server.name}': {error_msg}")
+        return {"success": False, "error": error_msg, "state": None}
+    except httpx.HTTPError as e:
+        error_msg = f"HTTP error fetching EXO state: {str(e)}"
+        logger.error(f"Failed to fetch state from EXO server '{server.name}': {error_msg}")
+        return {"success": False, "error": error_msg, "state": None}
+    except Exception as e:
+        error_msg = f"Unexpected error fetching EXO state: {str(e)}"
+        logger.error(f"Failed to fetch state from EXO server '{server.name}': {error_msg}", exc_info=True)
+        return {"success": False, "error": error_msg, "state": None}
+
+
+async def get_active_models_all_servers(db: AsyncIOMotorDatabase, http_client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+    """
+    Fetches running instances from active EXO servers using the `/state` endpoint.
     """
     servers = await get_servers(db)
-    active_servers = [s for s in servers if s.is_active]
-    
-    ollama_servers = [s for s in active_servers if s.server_type == 'ollama']
-    vllm_servers = [s for s in active_servers if s.server_type == 'vllm']
+    exo_servers = [s for s in servers if s.is_active and s.server_type == 'exo']
     
     all_models = []
 
-    # 1. Fetch actively running models from Ollama servers
-    if ollama_servers:
-        async def fetch_ps(server: OllamaServer):
+    # Fetch running instances from EXO servers
+    if exo_servers:
+        async def fetch_exo_instances(server: ExoServer):
             try:
-                headers = _get_auth_headers(server)
-                ps_url = f"{server.url.rstrip('/')}/api/ps"
-                response = await http_client.get(ps_url, timeout=5.0, headers=headers)
-                response.raise_for_status()
-                data = response.json()
-                # Add server info to each running model
-                for model in data.get("models", []):
-                    model["server_name"] = server.name
-                return data.get("models", [])
+                state_result = await fetch_exo_server_state(http_client, server)
+                if not state_result["success"]:
+                    return []
+                
+                state = state_result["state"]
+                instances = state.get("instances", {})
+                node_profiles = state.get("nodeProfiles", {})
+                
+                # Convert EXO instances to a format similar to Ollama models
+                exo_models = []
+                for instance_id, instance in instances.items():
+                    # Handle MlxRingInstance structure
+                    mlx_instance = instance.get("MlxRingInstance", {})
+                    if not mlx_instance:
+                        continue
+                    
+                    shard_assignments = mlx_instance.get("shardAssignments", {})
+                    model_id = shard_assignments.get("modelId", "unknown")
+                    runner_to_shard = shard_assignments.get("runnerToShard", {})
+                    
+                    # Extract detailed information from first shard (all shards have same model info)
+                    model_size = 0
+                    pretty_name = model_id
+                    sharding_type = "Unknown"
+                    world_size = 1
+                    n_layers = 0
+                    
+                    if runner_to_shard:
+                        first_shard_key = next(iter(runner_to_shard.keys()))
+                        first_shard = runner_to_shard[first_shard_key]
+                        
+                        # Check for PipelineShardMetadata or TensorShardMetadata
+                        if "PipelineShardMetadata" in first_shard:
+                            shard_meta = first_shard["PipelineShardMetadata"]
+                            sharding_type = "Pipeline"
+                            model_meta = shard_meta.get("modelMeta", {})
+                            model_size = model_meta.get("storageSize", {}).get("inBytes", 0)
+                            pretty_name = model_meta.get("prettyName", model_id)
+                            world_size = shard_meta.get("worldSize", 1)
+                            n_layers = model_meta.get("nLayers", 0)
+                        elif "TensorShardMetadata" in first_shard:
+                            shard_meta = first_shard["TensorShardMetadata"]
+                            sharding_type = "Tensor"
+                            model_meta = shard_meta.get("modelMeta", {})
+                            model_size = model_meta.get("storageSize", {}).get("inBytes", 0)
+                            pretty_name = model_meta.get("prettyName", model_id)
+                            world_size = shard_meta.get("worldSize", 1)
+                            n_layers = model_meta.get("nLayers", 0)
+                    
+                    # Calculate total memory usage from nodes
+                    total_ram = 0
+                    available_ram = 0
+                    total_swap = 0
+                    available_swap = 0
+                    
+                    node_to_runner = shard_assignments.get("nodeToRunner", {})
+                    for node_id in node_to_runner.keys():
+                        node_profile = node_profiles.get(node_id, {})
+                        memory = node_profile.get("memory", {})
+                        if memory:
+                            ram_total = memory.get("ramTotal", {}).get("inBytes", 0)
+                            ram_avail = memory.get("ramAvailable", {}).get("inBytes", 0)
+                            swap_total = memory.get("swapTotal", {}).get("inBytes", 0)
+                            swap_avail = memory.get("swapAvailable", {}).get("inBytes", 0)
+                            total_ram += ram_total
+                            available_ram += ram_avail
+                            total_swap += swap_total
+                            available_swap += swap_avail
+                    
+                    exo_models.append({
+                        "name": model_id,
+                        "pretty_name": pretty_name,
+                        "server_name": server.name,
+                        "size": model_size,
+                        "size_vram": 1,
+                        "expires_at": "Running (EXO Instance)",
+                        "instance_id": instance_id,
+                        "sharding": sharding_type,
+                        "world_size": world_size,
+                        "n_layers": n_layers,
+                        "n_shards": len(runner_to_shard),
+                        "total_ram": total_ram,
+                        "available_ram": available_ram,
+                        "total_swap": total_swap,
+                        "available_swap": available_swap,
+                        "hosts": mlx_instance.get("hosts", [])
+                    })
+                return exo_models
             except Exception as e:
-                logger.error(f"Failed to fetch running models from server '{server.name}': {e}")
+                logger.error(f"Failed to fetch instances from EXO server '{server.name}': {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 return []
 
-        tasks = [fetch_ps(server) for server in ollama_servers]
+        tasks = [fetch_exo_instances(server) for server in exo_servers]
         results = await asyncio.gather(*tasks)
-        ollama_running_models = [model for sublist in results for model in sublist]
-        all_models.extend(ollama_running_models)
+        exo_instances = [model for sublist in results for model in sublist]
+        all_models.extend(exo_instances)
 
-    # 2. Add available models from vLLM servers
-    for server in vllm_servers:
-        if server.available_models:
-            for model_info in server.available_models:
-                all_models.append({
-                    "name": model_info.get("name"),
-                    "server_name": server.name,
-                    "size": model_info.get("size", 0),
-                    "size_vram": 1,  # Assume GPU placement for vLLM
-                    "expires_at": "N/A (Always Active)",
-                })
     return all_models
 
-async def refresh_all_server_models(db: AsyncSession) -> dict:
+async def refresh_all_server_models(db: AsyncIOMotorDatabase) -> dict:
     """
     Refreshes model lists for all active servers.
 
@@ -472,14 +600,14 @@ async def refresh_all_server_models(db: AsyncSession) -> dict:
 
     return results
 
-async def check_server_health(http_client: httpx.AsyncClient, server: OllamaServer) -> Dict[str, Any]:
-    """Performs a quick health check on a single Ollama server."""
+async def check_server_health(http_client: httpx.AsyncClient, server: ExoServer) -> Dict[str, Any]:
+    """Performs a quick health check on a single backend server."""
     headers = _get_auth_headers(server)
     try:
-        ping_url = server.url.rstrip('/')
-        # vLLM servers have a /health endpoint, Ollama root is enough
-        if server.server_type == 'vllm':
-            ping_url += '/health'
+        base_url = server.url.rstrip('/')
+        # Prefer a cheap endpoint that reliably returns 200 when the backend is ready.
+        # EXO exposes an OpenAI-compatible /v1/models endpoint
+        ping_url = f"{base_url}/v1/models"
             
         response = await http_client.get(ping_url, timeout=3.0, headers=headers)
         
@@ -495,7 +623,7 @@ async def check_server_health(http_client: httpx.AsyncClient, server: OllamaServ
         logger.error(f"Unexpected error during health check for server '{server.name}': {e}")
         return {"server_id": server.id, "name": server.name, "url": server.url, "status": "Offline", "reason": "Unexpected error"}
 
-async def check_all_servers_health(db: AsyncSession, http_client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+async def check_all_servers_health(db: AsyncIOMotorDatabase, http_client: httpx.AsyncClient) -> List[Dict[str, Any]]:
     """Checks the health of all configured servers."""
     servers = await get_servers(db)
     if not servers:

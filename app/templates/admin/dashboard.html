@@ -58,16 +58,17 @@
                     <tr>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Model</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Server</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Placement</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Size</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Expires In</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
                         <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="running-models-tbody" class="divide-y divide-white/10">
                     <!-- Loading state -->
                     <tr>
-                        <td colspan="6" class="px-6 py-10 text-center text-gray-400">
+                        <td colspan="7" class="px-6 py-10 text-center text-gray-400">
                             <svg class="animate-spin h-5 w-5 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             <span class="mt-2 block">Loading active models...</span>
                         </td>
@@ -145,14 +146,27 @@ document.addEventListener('DOMContentLoaded', () => {
         const csrfToken = "{{ csrf_token }}";
         tbody.innerHTML = '';
         if (models.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-10 text-center text-gray-400">No models are currently running or available on active servers.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="px-6 py-10 text-center text-gray-400">No models are currently running or available on active servers.</td></tr>`;
             return;
         }
         models.forEach(model => {
             const sizeGb = (model.size / (1024 ** 3)).toFixed(2);
-            const isOllamaModel = model.expires_at && !String(model.expires_at).startsWith('N/A');
+            const isOllamaModel = model.expires_at && !String(model.expires_at).startsWith('N/A') && !String(model.expires_at).startsWith('Running');
+            const isExoModel = model.instance_id || String(model.expires_at).includes('EXO Instance');
+            const isVllmModel = String(model.expires_at).includes('Always Active');
 
-            let expiresIn = 'N/A';
+            // Determine model type badge
+            let typeBadge = '';
+            if (isExoModel) {
+                typeBadge = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-200 text-purple-800">EXO</span>';
+            } else if (isVllmModel) {
+                typeBadge = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-200 text-blue-800">vLLM</span>';
+            } else {
+                typeBadge = '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-200 text-green-800">Ollama</span>';
+            }
+
+            // Status/Expires In
+            let status = 'N/A';
             if (isOllamaModel) {
                 const expiresDate = new Date(model.expires_at);
                 const now = new Date();
@@ -160,10 +174,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (diffSeconds > 0) {
                     const minutes = Math.floor(diffSeconds / 60);
                     const seconds = diffSeconds % 60;
-                    expiresIn = `${minutes}m ${seconds}s`;
+                    status = `${minutes}m ${seconds}s`;
+                } else {
+                    status = 'Expired';
+                }
+            } else if (isExoModel) {
+                status = 'Running';
+                if (model.sharding && model.sharding !== 'Unknown') {
+                    status += ` (${model.sharding})`;
+                }
+                if (model.world_size && model.world_size > 1) {
+                    status += ` • ${model.world_size} shards`;
                 }
             } else if (model.expires_at) {
-                expiresIn = model.expires_at;
+                status = model.expires_at;
+            }
+
+            // EXO-specific details
+            let modelDetails = model.name;
+            if (isExoModel && model.instance_id) {
+                const shortInstanceId = model.instance_id.substring(0, 8) + '...';
+                const displayName = model.pretty_name || model.name;
+                let detailsHtml = `
+                    <div>
+                        <div class="font-medium">${displayName}</div>
+                        <div class="text-xs text-gray-400 font-mono">${model.name}</div>
+                        <div class="text-xs text-gray-500 mt-1">Instance: ${shortInstanceId}</div>
+                `;
+                
+                // Add sharding details if available
+                if (model.world_size && model.world_size > 1) {
+                    detailsHtml += `<div class="text-xs text-gray-500">${model.n_shards || model.world_size} shards (${model.sharding})</div>`;
+                }
+                if (model.n_layers) {
+                    detailsHtml += `<div class="text-xs text-gray-500">${model.n_layers} layers</div>`;
+                }
+                
+                detailsHtml += `</div>`;
+                modelDetails = detailsHtml;
+            } else if (isExoModel) {
+                // Fallback if instance_id not available
+                const displayName = model.pretty_name || model.name;
+                modelDetails = displayName;
             }
 
             const placement = model.size_vram > 0 ? '<span class="gpu-badge">GPU</span>' : '<span class="cpu-badge">CPU</span>';
@@ -179,11 +231,15 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             const row = `
                 <tr>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-current">${model.name}</td>
+                    <td class="px-6 py-4 ${isExoModel ? '' : 'whitespace-nowrap'} text-sm text-current">${modelDetails}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm">${model.server_name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm">${typeBadge}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm">${placement}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">${sizeGb > 0 ? (sizeGb + ' GB') : 'N/A'}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">${expiresIn}</td>
+                    <td class="px-6 py-4 ${isExoModel ? '' : 'whitespace-nowrap'} text-sm">
+                        ${sizeGb > 0 ? (sizeGb + ' GB') : 'N/A'}
+                        ${isExoModel && model.total_ram ? `<div class="text-xs text-gray-400 mt-1">RAM: ${((model.total_ram - model.available_ram) / (1024**3)).toFixed(1)}GB / ${(model.total_ram / (1024**3)).toFixed(1)}GB used</div>` : ''}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm">${status}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div class="flex justify-end gap-4">
                             <a href="${chatUrl}" class="text-[var(--color-primary-500)] hover:text-[var(--color-primary-700)]">Chat</a>

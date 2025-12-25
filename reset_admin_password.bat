@@ -2,7 +2,7 @@
 setlocal
 
 :: ==================================================================
-:: Ollama Proxy Fortress - Admin Password Reset Runner for Windows
+:: Exo Proxy Fortress - Admin Password Reset Runner for Windows
 :: ==================================================================
 
 set VENV_DIR=venv

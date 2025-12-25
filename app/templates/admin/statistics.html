@@ -1,8 +1,8 @@
 {% extends "admin/base.html" %}
 
-{% block title %}API Usage Statistics{% endblock %}
+{% block title %}{% if is_admin_view %}API Usage Statistics{% else %}Your Usage Statistics{% endif %}{% endblock %}
 
-{% block header_title %}API Usage Statistics{% endblock %}
+{% block header_title %}{% if is_admin_view %}API Usage Statistics{% else %}Your Usage Statistics{% endif %}{% endblock %}
 
 {% macro sortable_header(column_key, column_name, text_align_class='text-left') %}
     {% set next_order = 'asc' if sort_by == column_key and sort_order == 'desc' else 'desc' %}
@@ -19,6 +19,11 @@
 
 {% block content %}
 <div class="space-y-8">
+    {% if not is_admin_view %}
+    <div class="info-box p-4">
+        <p class="text-sm text-gray-600">Showing usage statistics for your account (<strong>{{ current_username }}</strong>). Only data from your API keys is displayed.</p>
+    </div>
+    {% endif %}
     <!-- Top Row: Line and Bar Charts -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div class="card-style">

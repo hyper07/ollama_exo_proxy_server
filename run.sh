@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ====================================================================
 #
-#   Ollama Proxy Fortress - Alembic-Free Installer & Runner
+#   Exo Proxy Fortress - Installer & Runner
 #
 # ====================================================================
 
@@ -28,14 +28,55 @@ print_error()   { echo -e "${COLOR_ERROR}[ERROR]${COLOR_RESET} $*" >&2; }
 print_warn()    { echo -e "${COLOR_WARN}[WARNING]${COLOR_RESET} $*"; }
 
 clear
-print_header "    Ollama Proxy Fortress Installer & Runner"
+print_header "    Exo Proxy Fortress Installer & Runner"
 
-print_info "Performing initial system checks..."
-if ! command -v "$PYTHON_BIN" &>/dev/null || ! "$PYTHON_BIN" -m pip --version &>/dev/null || ! "$PYTHON_BIN" -m venv -h &>/dev/null; then
-    print_error "Python ($PYTHON_BIN), pip, or venv is missing."
-    exit 1
-fi
-print_success "Python ($PYTHON_BIN), pip, and venv are available."
+print_info "Choose installation method:"
+echo "  1) Docker (recommended - isolated environment)"
+echo "  2) Native Python (direct installation)"
+read -p "Enter your choice (1 or 2): " INSTALL_METHOD
+
+if [[ "$INSTALL_METHOD" == "1" ]]; then
+    print_info "Selected Docker installation..."
+    
+    # Check if Docker and Docker Compose are available
+    if ! command -v docker &>/dev/null; then
+        print_error "Docker is not installed. Please install Docker first."
+        exit 1
+    fi
+    
+    if ! command -v docker-compose &>/dev/null; then
+        print_error "Docker Compose is not installed. Please install Docker Compose first."
+        exit 1
+    fi
+    
+    print_success "Docker and Docker Compose are available."
+    
+    # Check if .env exists, if not run setup wizard
+    if [[ ! -f ".env" ]]; then
+        print_header "--- Docker Setup: Server Configuration ---"
+        "$PYTHON_BIN" setup_wizard.py
+        if [ $? -ne 0 ]; then
+            print_error "Setup wizard failed. Aborting."
+            exit 1
+        fi
+        print_success ".env file created."
+    fi
+    
+    print_header "--- Starting Exo Proxy Fortress with Docker ---"
+    print_info "Building and starting containers..."
+    print_info "This may take a few minutes on first run."
+    echo
+    exec docker-compose up --build
+else
+    print_info "Selected native Python installation..."
+    
+    print_info "Performing initial system checks..."
+    if ! command -v "$PYTHON_BIN" &>/dev/null || ! "$PYTHON_BIN" -m pip --version &>/dev/null || ! "$PYTHON_BIN" -m venv -h &>/dev/null; then
+        print_error "Python ($PYTHON_BIN), pip, or venv is missing."
+        exit 1
+    fi
+    print_success "Python ($PYTHON_BIN), pip, and venv are available."
+
 
 CURRENT_STATE=0
 if [[ -f "$STATE_FILE" ]]; then CURRENT_STATE=$(cat "$STATE_FILE"); fi
@@ -85,17 +126,17 @@ if [[ "$CURRENT_STATE" -lt 3 ]]; then
 fi
 
 SERVICE_CREATED=false
-if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null && [[ ! -f "/etc/systemd/system/ollama_proxy.service" ]]; then
+if [[ "$(uname)" == "Linux" ]] && command -v systemctl &>/dev/null && [[ ! -f "/etc/systemd/system/exo_proxy.service" ]]; then
     print_header "--- Optional: Create a Systemd Service ---"
     read -p "Create and enable a systemd service to run on boot? (y/n): " CREATE_SERVICE
     if [[ "$CREATE_SERVICE" =~ ^[Yy]$ ]]; then
-        SERVICE_FILE_PATH="/etc/systemd/system/ollama_proxy.service"
+        SERVICE_FILE_PATH="/etc/systemd/system/exo_proxy.service"
         print_info "Creating systemd service file..."
         PROJECT_DIR=$(pwd)
         PORT_TO_USE=$(grep -E '^PROXY_PORT=' .env | cut -d '=' -f2 | tr -d '"' || echo "8080")
         SERVICE_FILE_CONTENT=$(cat << EOF
 [Unit]
-Description=Ollama Proxy Fortress Service
+Description=Exo Proxy Fortress Service
 After=network.target
 [Service]
 User=${USER}
@@ -112,17 +153,17 @@ EOF
         print_warn "Root privileges are required to install the service."
         echo "$SERVICE_FILE_CONTENT" | sudo tee "$SERVICE_FILE_PATH" > /dev/null
         sudo systemctl daemon-reload
-        sudo systemctl enable "ollama_proxy.service"
-        sudo systemctl start "ollama_proxy.service"
+        sudo systemctl enable "exo_proxy.service"
+        sudo systemctl start "exo_proxy.service"
         print_header "--- Service Management ---"
-        print_success "Service 'ollama_proxy' is now running."
-        print_info "Check status: sudo systemctl status ollama_proxy"
+        print_success "Service 'exo_proxy' is now running."
+        print_info "Check status: sudo systemctl status exo_proxy"
         SERVICE_CREATED=true
     fi
 fi
 
 if [ "$SERVICE_CREATED" = false ]; then
-    print_header "--- Starting Ollama Proxy Fortress (Foreground Mode) ---"
+    print_header "--- Starting Exo Proxy Fortress (Foreground Mode) ---"
     source "$VENV_DIR/bin/activate"
     export PYTHONPATH=.
     PORT_TO_USE=$(grep -E '^PROXY_PORT=' .env | cut -d '=' -f2 | tr -d '"' | tr -d "'" || echo "8080")

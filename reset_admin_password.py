@@ -3,8 +3,7 @@ import asyncio
 import getpass
 import sys
 
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy.future import select
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # This is a standalone script, so we need to add the app directory to the path
 # to be able to import app modules.
@@ -36,8 +35,8 @@ async def main():
     """
     print_info("Connecting to the database...")
     try:
-        engine = create_async_engine(settings.DATABASE_URL)
-        AsyncSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        client = AsyncIOMotorClient(settings.DATABASE_URL)
+        db = client.get_database()
     except Exception as e:
         print_error(f"Failed to configure database connection: {e}")
         print_error("Please ensure your .env file is present and DATABASE_URL is correct.")
@@ -62,41 +61,38 @@ async def main():
             break
 
     # --- Database Operation ---
-    async with AsyncSessionLocal() as db:
-        print_info(f"Searching for admin user '{admin_username}'...")
-        
-        result = await db.execute(select(User).filter(User.username == admin_username))
-        admin_user = result.scalars().first()
+    print_info(f"Searching for admin user '{admin_username}'...")
 
-        if not admin_user:
-            print_error(f"User '{admin_username}' not found in the database.")
-            return
+    admin_user = await User.find_one(User.username == admin_username)
 
-        if not admin_user.is_admin:
-            print_error(f"User '{admin_username}' is not an admin account. Password not changed.")
-            return
-            
-        print_info(f"Admin user '{admin_username}' found. Updating password...")
-        
-        # Check if the hash needs to be updated (e.g., from an old scheme)
-        needs_update = pwd_context.needs_update(admin_user.hashed_password)
-        
-        # Hash the new password and update the user object
-        admin_user.hashed_password = get_password_hash(new_password)
-        
-        try:
-            await db.commit()
-            print_success(f"Password for admin user '{admin_username}' has been successfully reset.")
-            if needs_update:
-                print_info("The password hash was also updated to the latest security scheme.")
-        except Exception as e:
-            await db.rollback()
-            print_error(f"An error occurred while updating the database: {e}")
+    if not admin_user:
+        print_error(f"User '{admin_username}' not found in the database.")
+        return
+
+    if not admin_user.is_admin:
+        print_error(f"User '{admin_username}' is not an admin account. Password not changed.")
+        return
+
+    print_info(f"Admin user '{admin_username}' found. Updating password...")
+
+    # Check if the hash needs to be updated (e.g., from an old scheme)
+    needs_update = pwd_context.needs_update(admin_user.hashed_password)
+
+    # Hash the new password and update the user object
+    admin_user.hashed_password = get_password_hash(new_password)
+
+    try:
+        await admin_user.save()
+        print_success(f"Password for admin user '{admin_username}' has been successfully reset.")
+        if needs_update:
+            print_info("The password hash was also updated to the latest security scheme.")
+    except Exception as e:
+        print_error(f"An error occurred while updating the database: {e}")
 
 
 if __name__ == "__main__":
     print("\n==============================================")
-    print("    Ollama Proxy Fortress - Admin Password Reset")
+    print("    Exo Proxy Fortress - Admin Password Reset")
     print("==============================================")
     
     # Check for .env file

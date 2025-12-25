@@ -29,6 +29,7 @@
                 <select name="server_type" id="server_type" class="mt-1 block w-full px-3 py-2 rounded-md shadow-sm">
                     <option value="ollama" {% if server.server_type == 'ollama' %}selected{% endif %}>Ollama</option>
                     <option value="vllm" {% if server.server_type == 'vllm' %}selected{% endif %}>vLLM (OpenAI-Compatible)</option>
+                    <option value="exo" {% if server.server_type == 'exo' %}selected{% endif %}>Exo</option>
                 </select>
             </div>
             

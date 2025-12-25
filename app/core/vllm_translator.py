@@ -29,18 +29,18 @@ THINK_TOOL = {
 }
 
 # --- Request Translation ---
-def translate_ollama_to_vllm_chat(ollama_payload: Dict[str, Any]) -> Dict[str, Any]:
+def translate_exo_to_vllm_chat(exo_payload: Dict[str, Any]) -> Dict[str, Any]:
     vllm_payload = {
-        "model": ollama_payload.get("model"),
-        "stream": ollama_payload.get("stream", False),
+        "model": exo_payload.get("model"),
+        "stream": exo_payload.get("stream", False),
     }
     
-    messages = ollama_payload.get("messages", [])
+    messages = exo_payload.get("messages", [])
     
     # Check for and handle Chain-of-Thought prompt for vLLM
     final_messages = []
     
-    is_thinking_on = ollama_payload.get("think") is True
+    is_thinking_on = exo_payload.get("think") is True
 
     # Inject CoT prompt if thinking is enabled for a non-native model
     if is_thinking_on:
@@ -72,14 +72,14 @@ def translate_ollama_to_vllm_chat(ollama_payload: Dict[str, Any]) -> Dict[str, A
             
     return vllm_payload
 
-def translate_ollama_to_vllm_embeddings(ollama_payload: Dict[str, Any]) -> Dict[str, Any]:
+def translate_exo_to_vllm_embeddings(exo_payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "model": ollama_payload.get("model"),
-        "input": ollama_payload.get("prompt"),
+        "model": exo_payload.get("model"),
+        "input": exo_payload.get("prompt"),
     }
 
 # --- Response Translation ---
-async def vllm_stream_to_ollama_stream(vllm_stream: AsyncGenerator[str, None], model_name: str) -> AsyncGenerator[bytes, None]:
+async def vllm_stream_to_exo_stream(vllm_stream: AsyncGenerator[str, None], model_name: str) -> AsyncGenerator[bytes, None]:
     """
     Translates a vLLM/OpenAI SSE stream into an Ollama-compatible SSE stream.
     Handles regular content and tool calls for "thinking".
@@ -212,7 +212,7 @@ async def vllm_stream_to_ollama_stream(vllm_stream: AsyncGenerator[str, None], m
             yield (json.dumps(final_done_chunk) + '\n').encode('utf-8')
 
 
-def translate_vllm_to_ollama_embeddings(vllm_payload: Dict[str, Any]) -> Dict[str, Any]:
+def translate_vllm_to_exo_embeddings(vllm_payload: Dict[str, Any]) -> Dict[str, Any]:
     embedding_data = vllm_payload.get("data", [])
     embedding = embedding_data[0].get("embedding") if embedding_data else []
     return {"embedding": embedding}

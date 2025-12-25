@@ -1,0 +1,86 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PROXY_PORT:-8080}:8080"
+    # Enable access to host machine from container
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - DATABASE_URL=mongodb://mongodb:27017/exo_proxy
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - APP_NAME=Exo Proxy Server
+      - APP_VERSION=1.0.0
+      - LOG_LEVEL=info
+      - EXO_SERVERS=http://host.docker.internal:52415
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+      - SECRET_KEY=${SECRET_KEY:-$(openssl rand -hex 32)}
+      - RATE_LIMIT_REQUESTS=100
+      - RATE_LIMIT_WINDOW_MINUTES=1
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - proxy_network
+    volumes:
+      - ./.env:/home/app/.env:ro
+    restart: unless-stopped
+    command: >
+      sh -c "
+      if [ ! -f .env ]; then
+        echo '📝 Running initial setup...'
+        python setup_wizard.py
+      fi &&
+      echo '🚀 Starting Exo Proxy Server...' &&
+      gunicorn -c gunicorn_conf.py app.main:app --bind 0.0.0.0:8080
+      "
+
+  nginx:
+    image: nginx:1.25-alpine
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - proxy_network
+    volumes:
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=exo_proxy
+    networks:
+      - proxy_network
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - proxy_network
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+# Network configuration
+networks:
+  proxy_network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: exo_proxy_br
+      com.docker.network.driver.mtu: 1500
+
+volumes:
+  mongodb_data:
+  redis_data:

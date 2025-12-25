@@ -1,6 +1,12 @@
 # --- Build Stage ---
 FROM python:3.13-slim AS builder
 
+# Install system dependencies for psutil and other packages
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set working directory
 WORKDIR /app
 
@@ -16,6 +22,11 @@ RUN poetry config virtualenvs.create false && \
 
 # Set a non-root user
 RUN addgroup --system app && adduser --system --group app
+
+# Create necessary directories and set permissions
+RUN mkdir -p /home/app/app/static/uploads && \
+    chown -R app:app /home/app
+
 USER app
 
 # Set working directory
@@ -23,6 +34,7 @@ WORKDIR /home/app
 
 COPY ./app ./app
 COPY gunicorn_conf.py .
+COPY setup_wizard.py .
 
 # Expose the port the app runs on
 EXPOSE 8080

@@ -7,17 +7,18 @@ class AppSettingsModel(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     # --- BRANDING SETTINGS ---
-    branding_title: str = "Ollama Proxy"
+    branding_title: str = "EXO Proxy"
     branding_logo_url: Optional[str] = Field(default=None, validate_default=True)
 
     # --- THEME SETTINGS ---
-    ui_style: str = "dark-glass"  # 'dark-glass', 'dark-flat', 'light-glass', 'light-flat'
-    selected_theme: str = "indigo"
+    ui_style: str = "aurora"  # 'dark-glass', 'dark-flat', 'light-glass', 'light-flat'
+    selected_theme: str = "gold"
     
     # Static property, not stored in DB, but available for the app
     @property
     def available_themes(self) -> Dict[str, Dict[str, str]]:
         return {
+            "gold": { "500": "#d4af37", "600": "#b8922c", "700": "#9c7521", "800": "#805816" },
             "indigo": { "500": "#6366f1", "600": "#4f46e5", "700": "#4338ca", "800": "#3730a3" },
             "sky": { "500": "#0ea5e9", "600": "#0284c7", "700": "#0369a1", "800": "#075985" },
             "teal": { "500": "#14b8a6", "600": "#0d9488", "700": "#0f766e", "800": "#115e59" },
@@ -30,7 +31,7 @@ class AppSettingsModel(BaseModel):
             "white": { "500": "#4b5563", "600": "#374151", "700": "#1f2937", "800": "#111827" }
         }
 
-    redis_host: str = "localhost"
+    redis_host: str = Field(default="redis", description="Redis server hostname (use 'redis' for Docker Compose)")
     redis_port: int = 6379
     redis_username: Optional[str] = None
     redis_password: Optional[str] = None
@@ -62,6 +63,10 @@ class AppSettingsModel(BaseModel):
         le=5000,
         description="Base delay in milliseconds for exponential backoff between retries"
     )
+    backend_failure_cooldown_seconds: int = Field(
+        default=10,
+        description="When a backend fails, temporarily skip it for this many seconds (improves load balancer stability)."
+    )
     
     # --- HTTPS/SSL Settings ---
     ssl_keyfile: Optional[str] = Field(default=None, description="Path to the SSL private key file (e.g., key.pem). Requires a restart.")
@@ -70,9 +75,9 @@ class AppSettingsModel(BaseModel):
     ssl_certfile_content: Optional[str] = Field(default=None, description="Content of the uploaded SSL cert file.", exclude=True) # Exclude from API responses
 
     # --- SECURITY ---
-    blocked_ollama_endpoints: str = Field(
+    blocked_exo_endpoints: str = Field(
         default="pull,delete,create,copy,push",
-        description="Comma-separated list of Ollama API paths to block for API key holders."
+        description="Comma-separated list of Exo API paths to block for API key holders."
     )
 
     @field_validator('retry_total_timeout_seconds')

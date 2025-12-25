@@ -6,7 +6,7 @@ from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, Response
-from sqlalchemy.ext.asyncio import AsyncSession
+from motor.motor_asyncio import AsyncIOMotorDatabase
 import httpx
 
 from app.database.session import get_db
@@ -15,7 +15,6 @@ from app.crud import server_crud
 from app.api.v1.dependencies import validate_csrf_token_header
 from app.api.v1.routes.admin import require_admin_user, get_template_context, templates
 from app.core.test_prompts import PREBUILT_TEST_PROMPTS
-from app.api.v1.routes.proxy import _select_auto_model
 
 
 logger = logging.getLogger(__name__)
@@ -24,7 +23,7 @@ router = APIRouter()
 @router.get("/playground", response_class=HTMLResponse, name="admin_playground")
 async def admin_playground_ui(
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncIOMotorDatabase = Depends(get_db),
     admin_user: User = Depends(require_admin_user),
     model: Optional[str] = Query(None)
 ):
@@ -39,7 +38,7 @@ async def admin_playground_ui(
 @router.post("/playground-stream", name="admin_playground_stream", dependencies=[Depends(validate_csrf_token_header)])
 async def admin_playground_stream(
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncIOMotorDatabase = Depends(get_db),
     admin_user: User = Depends(require_admin_user)
 ):
     try:
@@ -50,33 +49,6 @@ async def admin_playground_stream(
         
         if not model_name or not messages:
             return JSONResponse({"error": "Model and messages are required."}, status_code=400)
-
-        # --- NEW: Handle 'auto' model routing ---
-        if model_name == "auto":
-            resolved_model = await _select_auto_model(db, data)
-            if not resolved_model:
-                error_payload = {"error": "Auto-routing could not find a suitable model."}
-                return Response(json.dumps(error_payload), media_type="application/x-ndjson", status_code=503)
-            
-            logger.info(f"Playground 'auto' model resolved to -> '{resolved_model}'")
-            model_name = resolved_model
-        # --- END NEW ---
-
-        # Handle base64 images, converting them to the format Ollama expects
-        for msg in messages:
-            if isinstance(msg.get("content"), list):
-                new_content = []
-                images_list = []
-                for item in msg["content"]:
-                    if item.get("type") == "text":
-                        new_content.append(item["text"])
-                    elif item.get("type") == "image_url":
-                        base64_str = item["image_url"]["url"].split(",")[-1]
-                        images_list.append(base64_str)
-                
-                msg["content"] = " ".join(new_content)
-                if images_list:
-                    msg["images"] = images_list
 
         http_client: httpx.AsyncClient = request.app.state.http_client
         
@@ -90,20 +62,205 @@ async def admin_playground_stream(
         else:
             target_server = servers_with_model[0]
         
-        if target_server.server_type == 'vllm':
-            from app.core.vllm_translator import translate_ollama_to_vllm_chat, vllm_stream_to_ollama_stream
+        # Handle base64 images - format depends on server type
+        # EXO/vLLM use OpenAI format (keep as-is), Ollama needs conversion
+        if target_server.server_type != 'exo' and target_server.server_type != 'vllm':
+            # Convert to Ollama format
+            for msg in messages:
+                if isinstance(msg.get("content"), list):
+                    new_content = []
+                    images_list = []
+                    for item in msg["content"]:
+                        if item.get("type") == "text":
+                            new_content.append(item["text"])
+                        elif item.get("type") == "image_url":
+                            base64_str = item["image_url"]["url"].split(",")[-1]
+                            images_list.append(base64_str)
+                    
+                    msg["content"] = " ".join(new_content)
+                    if images_list:
+                        msg["images"] = images_list
+        
+        if target_server.server_type == 'exo':
+            # EXO server - uses OpenAI-compatible /v1/chat/completions endpoint
+            chat_url = f"{target_server.url.rstrip('/')}/v1/chat/completions"
+            
+            # EXO expects OpenAI-compatible format with messages array
+            # Keep messages in OpenAI format (already compatible)
+            payload = {
+                "model": model_name,
+                "messages": messages,
+                "stream": True,
+            }
+            
+            # EXO doesn't support think_option in the same way, but we can pass it if needed
+            if think_option:
+                # Some EXO models might support thinking, but it's not standard
+                # For now, we'll just log it
+                logger.info(f"Think option requested for EXO model: {think_option}")
+            
+            from app.crud.server_crud import _get_auth_headers
+            headers = _get_auth_headers(target_server)
+
+            async def event_stream_exo():
+                final_chunk = None
+                total_content = ""
+                start_time = time.monotonic()
+                buffer = ""
+                try:
+                    async with http_client.stream("POST", chat_url, json=payload, timeout=600.0, headers=headers) as response:
+                        if response.status_code != 200:
+                            error_body = await response.aread()
+                            error_text = error_body.decode('utf-8')
+                            logger.error(f"EXO backend returned error {response.status_code}: {error_text}")
+                            error_payload = {"error": f"EXO server error: {error_text}"}
+                            yield (json.dumps(error_payload) + '\n').encode('utf-8')
+                            return
+                        
+                        # EXO returns SSE format: "data: {...}\n\n" or "data: [DONE]\n\n"
+                        # SSE messages are separated by \n\n, but we also handle single \n for robustness
+                        async for chunk_bytes in response.aiter_bytes():
+                            buffer += chunk_bytes.decode('utf-8', errors='replace')
+                            
+                            # Process complete SSE messages (separated by \n\n)
+                            while '\n\n' in buffer:
+                                sse_message, buffer = buffer.split('\n\n', 1)
+                                sse_message = sse_message.strip()
+                                
+                                if not sse_message:
+                                    continue
+                                
+                                # Handle multiple lines in one SSE message (shouldn't happen but be safe)
+                                for line in sse_message.split('\n'):
+                                    line = line.strip()
+                                    if not line:
+                                        continue
+                                    
+                                    # Parse SSE format: "data: {...}" or "data: [DONE]"
+                                    if line.startswith('data: '):
+                                        json_str = line[6:].strip()  # Remove "data: " prefix
+                                        
+                                        if json_str == '[DONE]':
+                                            # Stream is complete
+                                            continue
+                                        
+                                        try:
+                                            chunk_data = json.loads(json_str)
+                                            
+                                            # Convert EXO format to playground NDJSON format
+                                            # EXO format: {"id":"...","choices":[{"delta":{"content":"..."}}]}
+                                            # Playground format: {"message": {"role": "assistant", "content": "..."}}
+                                            
+                                            if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                                choice = chunk_data['choices'][0]
+                                                
+                                                # Check for content in delta
+                                                if 'delta' in choice and 'content' in choice['delta']:
+                                                    content = choice['delta'].get('content', '')
+                                                    if content:
+                                                        total_content += content
+                                                        # Convert to playground format
+                                                        playground_chunk = {
+                                                            "message": {
+                                                                "role": "assistant",
+                                                                "content": content
+                                                            }
+                                                        }
+                                                        yield (json.dumps(playground_chunk) + '\n').encode('utf-8')
+                                                
+                                                # Check for finish_reason (indicates final chunk)
+                                                if 'finish_reason' in choice:
+                                                    final_chunk = chunk_data
+                                            
+                                            # Also check for usage info
+                                            if 'usage' in chunk_data:
+                                                final_chunk = chunk_data
+                                                
+                                        except json.JSONDecodeError as e:
+                                            logger.warning(f"Failed to parse EXO SSE chunk: {json_str[:100]}... Error: {e}")
+                                            continue
+                        
+                        # Process any remaining buffer (handle incomplete SSE messages at end of stream)
+                        if buffer.strip():
+                            for line in buffer.strip().split('\n'):
+                                line = line.strip()
+                                if line.startswith('data: '):
+                                    json_str = line[6:].strip()
+                                    if json_str and json_str != '[DONE]':
+                                        try:
+                                            chunk_data = json.loads(json_str)
+                                            if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                                choice = chunk_data['choices'][0]
+                                                if 'delta' in choice and 'content' in choice['delta']:
+                                                    content = choice['delta'].get('content', '')
+                                                    if content:
+                                                        total_content += content
+                                                        playground_chunk = {
+                                                            "message": {
+                                                                "role": "assistant",
+                                                                "content": content
+                                                            }
+                                                        }
+                                                        yield (json.dumps(playground_chunk) + '\n').encode('utf-8')
+                                                if 'finish_reason' in choice:
+                                                    final_chunk = chunk_data
+                                            if 'usage' in chunk_data:
+                                                final_chunk = chunk_data
+                                        except json.JSONDecodeError:
+                                            pass
+                        
+                        # Send final chunk with stats
+                        if final_chunk:
+                            end_time = time.monotonic()
+                            duration_ns = int((end_time - start_time) * 1_000_000_000)
+                            
+                            # Calculate approximate token count (rough estimate: 4 chars per token)
+                            eval_count = len(total_content) // 4 if total_content else 0
+                            
+                            final_playground_chunk = {
+                                "done": True,
+                                "eval_count": eval_count,
+                                "eval_duration": duration_ns
+                            }
+                            
+                            # Include usage info if available
+                            if 'usage' in final_chunk:
+                                final_playground_chunk["usage"] = final_chunk['usage']
+                            
+                            yield (json.dumps(final_playground_chunk) + '\n').encode('utf-8')
+                        else:
+                            # No final chunk - send a done message anyway
+                            end_time = time.monotonic()
+                            duration_ns = int((end_time - start_time) * 1_000_000_000)
+                            eval_count = len(total_content) // 4 if total_content else 0
+                            final_playground_chunk = {
+                                "done": True,
+                                "eval_count": eval_count,
+                                "eval_duration": duration_ns
+                            }
+                            yield (json.dumps(final_playground_chunk) + '\n').encode('utf-8')
+                            
+                except Exception as e:
+                    logger.error(f"Error streaming from EXO backend: {e}", exc_info=True)
+                    error_payload = {"error": "Failed to stream from EXO server.", "details": str(e)}
+                    yield (json.dumps(error_payload) + '\n').encode('utf-8')
+            
+            return StreamingResponse(event_stream_exo(), media_type="application/x-ndjson")
+
+        elif target_server.server_type == 'vllm':
+            from app.core.vllm_translator import translate_exo_to_vllm_chat, vllm_stream_to_exo_stream
             
             chat_url = f"{target_server.url.rstrip('/')}/v1/chat/completions"
             
-            ollama_payload = {
+            exo_payload = {
                 "model": model_name,
                 "messages": messages,
                 "stream": True,
             }
             if think_option is True:
-                ollama_payload["think"] = True
+                exo_payload["think"] = True
             
-            payload = translate_ollama_to_vllm_chat(ollama_payload)
+            payload = translate_exo_to_vllm_chat(exo_payload)
             
             from app.crud.server_crud import _get_auth_headers
             headers = _get_auth_headers(target_server)
@@ -119,7 +276,7 @@ async def admin_playground_stream(
                             yield json.dumps(error_payload).encode('utf-8')
                             return
                         
-                        async for chunk in vllm_stream_to_ollama_stream(response.aiter_text(), model_name):
+                        async for chunk in vllm_stream_to_exo_stream(response.aiter_text(), model_name):
                             yield chunk
                 except Exception as e:
                     logger.error(f"Error streaming from vLLM backend: {e}", exc_info=True)

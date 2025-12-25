@@ -40,7 +40,7 @@
             <div class="space-y-4 text-current">
                 <ol class="list-decimal list-inside space-y-4">
                     <li>
-                        <strong>Configure Servers:</strong> Go to the <a href="{{ url_for('admin_servers') }}" class="font-semibold text-[var(--color-primary-600)] hover:underline">Server Management</a> page. Add the URLs for all your backend instances (both Ollama and vLLM are supported).
+                        <strong>Configure Servers:</strong> Go to the <a href="{{ url_for('admin_servers') }}" class="font-semibold text-[var(--color-primary-600)] hover:underline">Server Management</a> page. Add the URLs for all your backend instances. The proxy supports <strong>Exo</strong> servers, <strong>Ollama</strong> servers, and <strong>vLLM</strong> (or any OpenAI-compatible) servers.
                     </li>
                     <li>
                         <strong>Create a User:</strong> Navigate to the <a href="{{ url_for('admin_users') }}" class="font-semibold text-[var(--color-primary-600)] hover:underline">User Management</a> page. This is where you'll create accounts for your users or applications.
@@ -52,7 +52,7 @@
                         <strong>Copy the Key:</strong> The full API key is shown **only once** upon creation. Copy it immediately and store it in a secure location like a password manager.
                     </li>
                     <li>
-                        <strong>Use the Key:</strong> In your applications, replace your Ollama URL with the proxy's URL (e.g., <code class="inline-code">http://127.0.0.1:8080</code>) and provide the API key in the <code class="inline-code">Authorization</code> header as a Bearer token.
+                        <strong>Use the Key:</strong> In your applications, replace your backend server URL (Exo, Ollama, or vLLM) with the proxy's URL (e.g., <code class="inline-code">http://127.0.0.1:8080</code>) and provide the API key in the <code class="inline-code">Authorization</code> header as a Bearer token. The proxy automatically handles translation between different API formats.
                     </li>
                 </ol>
             </div>
@@ -67,8 +67,9 @@
                     <li><strong>System Status:</strong> These gauges show the live CPU, Memory, and Disk usage of the machine running the proxy server itself.</li>
                     <li><strong>Active Models:</strong> This table shows a unified list of all models currently active across your backend servers.
                         <ul class="list-['-_'] list-inside pl-4 mt-2">
-                            <li>For **Ollama** servers, this means models currently loaded into VRAM/RAM. They have an "Expires In" timer and can be unloaded.</li>
-                            <li>For **vLLM** servers, all available models are considered "Always Active" as they are managed by the vLLM instance itself.</li>
+                            <li>For <strong>Exo</strong> servers, model status depends on the Exo server's current state.</li>
+                            <li>For <strong>Ollama</strong> servers, this means models currently loaded into VRAM/RAM. They have an "Expires In" timer and can be unloaded.</li>
+                            <li>For <strong>vLLM</strong> servers, all available models are considered "Always Active" as they are managed by the vLLM instance itself.</li>
                         </ul>
                     </li>
                     <li><strong>Load Balancer Status:</strong> This panel shows the health of all configured backend servers. "Online" means the proxy can reach the server, while "Offline" indicates a connection issue. It also shows a lifetime request count for each server.</li>
@@ -83,13 +84,13 @@
             <div class="space-y-4 text-current">
                 <p>This is where you configure the backend AI servers that the proxy will manage and distribute requests to.</p>
                 <ul class="list-disc list-inside space-y-3 pl-4">
-                    <li><strong>Adding Servers:</strong> You can add both standard <code class="inline-code">Ollama</code> servers and <code class="inline-code">vLLM</code> (or any OpenAI-compatible) servers. The proxy handles the translation automatically. You can also add an optional API key if your backend server requires one.</li>
+                    <li><strong>Adding Servers:</strong> You can add <strong>Exo</strong> servers, <strong>Ollama</strong> servers, and <strong>vLLM</strong> (or any OpenAI-compatible) servers. The proxy automatically handles translation between different API formats. You can also add an optional API key if your backend server requires one.</li>
                     <li><strong>Refreshing Models:</strong> Clicking "Refresh" fetches the latest list of available models from a server and stores it in the proxy's database. This is crucial for the "Smart Model Routing" feature. Model lists are also refreshed automatically in the background.</li>
-                    <li><strong>Managing Models:</strong> Clicking "Manage Models" takes you to a detailed view for that server. For Ollama servers, you can pull new models, update existing ones, delete models from disk, and trigger a model to be loaded into or unloaded from memory. These actions are not applicable to vLLM servers.</li>
+                    <li><strong>Managing Models:</strong> Clicking "Manage Models" takes you to a detailed view for that server. For Ollama servers, you can pull new models, update existing ones, delete models from disk, and trigger a model to be loaded into or unloaded from memory. For Exo servers, model management capabilities depend on the Exo server's features. These actions are not applicable to vLLM servers, which manage models independently.</li>
                 </ul>
             </div>
         </div>
-        
+
         <!-- User Management Section -->
         <div id="user-management" class="card-style scroll-mt-20">
             <h2 class="card-header text-2xl font-bold mb-6 pb-2">👤 User & Key Management</h2>
@@ -134,14 +135,35 @@
                 </div>
 
                 <div>
-                    <h3 class="text-xl font-semibold mb-2">Embedding Playground</h3>
-                    <p>This tool helps you visually understand how different embedding models work. It answers the question: "Does my model group similar concepts together?"</p>
+                    <h3 class="text-xl font-semibold mb-2">Embedding Playground & Benchmark</h3>
+                    <div class="mt-4 p-3 rounded-md text-sm info-box mb-4">
+                        <strong>Note:</strong> This playground is for testing embedding benchmarks with Ollama (via <a href="https://github.com/hyper07/ollama_proxy_server" target="_blank" class="font-semibold underline">ollama_proxy_server</a>). Exo doesn't support embedding models yet.
+                    </div>
+                    <p>A powerful tool for data scientists and developers to visualize and compare how different embedding models understand semantic relationships. Perfect for evaluating model performance, understanding model behavior, and selecting the best embedding model for your use case.</p>
                     <ul class="list-disc list-inside space-y-2 mt-3 pl-4">
-                        <li><strong>How it Works:</strong> You define groups of related words ("concepts"). The tool gets the vector embeddings for each text and uses PCA to project them into a 2D graph.</li>
-                        <li><strong>Interpreting the Results:</strong> Texts with similar meanings should appear clustered together. Well-defined, tight clusters indicate that the model has a good grasp of semantic similarity.</li>
-                        <li><strong>Benchmarks:</strong> Use pre-built benchmarks, create your own in the UI, or load/save them as JSON files. Any <code class="inline-code">.json</code> file you add to the <code class="inline-code">benchmarks/</code> folder will automatically appear in the "Load Pre-built" list.</li>
+                        <li><strong>Concept Groups:</strong> Organize your test data into concept groups (e.g., "Greetings", "Technical Terms", "Emotions"). Each group can contain multiple text samples and is assigned a unique color for visualization.</li>
+                        <li><strong>Multi-Model Comparison:</strong> Select multiple embedding models to benchmark simultaneously. The tool will generate embeddings for all texts across all selected models.</li>
+                        <li><strong>2D Visualization:</strong> Results are automatically reduced to 2D using Principal Component Analysis (PCA) and displayed as interactive scatter plots. Points are color-coded by concept group, making it easy to see how models cluster related concepts.</li>
+                        <li><strong>Pre-built Benchmarks:</strong> Load from a library of pre-built benchmark datasets, or create your own custom benchmarks tailored to your specific domain or use case.</li>
+                        <li><strong>Benchmark Management:</strong>
+                            <ul class="list-['-_'] list-inside pl-4 mt-2">
+                                <li><strong>Load Pre-built:</strong> Choose from curated benchmark datasets designed to test various aspects of embedding quality.</li>
+                                <li><strong>Load from File:</strong> Import your own benchmark JSON files to reuse or share with your team.</li>
+                                <li><strong>Save to File:</strong> Export your custom benchmarks as JSON files for version control, sharing, or future use.</li>
+                            </ul>
+                        </li>
+                        <li><strong>Interactive Results:</strong> Switch between different models using tabs to compare their embedding spaces side-by-side. Hover over data points to see the original text labels.</li>
+                        <li><strong>Use Cases:</strong>
+                            <ul class="list-['-_'] list-inside pl-4 mt-2">
+                                <li>Evaluate which embedding model best captures semantic relationships in your domain.</li>
+                                <li>Compare how different models understand specific concepts or terminology.</li>
+                                <li>Visualize the embedding space to understand model behavior and identify potential biases.</li>
+                                <li>Test model performance on domain-specific vocabulary or multilingual content.</li>
+                            </ul>
+                        </li>
                     </ul>
                 </div>
+
             </div>
         </div>
         
@@ -280,7 +302,7 @@ print(response.json())
                     <li><strong><a href="https://fastapi.tiangolo.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">FastAPI</a></strong>, <strong><a href="https://www.sqlalchemy.org/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">SQLAlchemy</a></strong>, <strong><a href="https://jinja.palletsprojects.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Jinja2</a></strong>, <strong><a href="https://www.chartjs.org/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Chart.js</a></strong>, and <strong><a href="https://tailwindcss.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Tailwind CSS</a></strong>.</li>
                 </ul>
                 <p class="pt-4">Project built and maintained by <strong>ParisNeo</strong> with help from AI and cool developers (check the contributors list in the github page).</p>
-                <p>Visit the project on <a href="https://github.com/ParisNeo/ollama_proxy_server" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">GitHub</a> to contribute, report issues, or star the repository!</p>
+                <p>Visit the project on <a href="https://github.com/hyper07/ollama_exo_proxy_server" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">GitHub</a> to contribute, report issues, or star the repository!</p>
             </div>
         </div>
     </div>

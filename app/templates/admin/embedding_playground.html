@@ -6,6 +6,12 @@
 
 {% block content %}
 <div class="max-w-6xl mx-auto space-y-8">
+    <!-- Note: This playground is for testing embedding benchmarks with Ollama. Exo doesn't support embedding models yet. -->
+    <div class="bg-yellow-600/20 border border-yellow-500/50 rounded-md p-4 mb-6">
+        <p class="text-yellow-200 text-sm">
+            <strong>Note:</strong> This playground is for testing embedding benchmarks with Ollama (via <a href="https://github.com/hyper07/ollama_proxy_server" target="_blank" class="underline hover:text-yellow-100">ollama_proxy_server</a>). Exo doesn't support embedding models yet.
+        </p>
+    </div>
     <div class="card-style">
         <h2 class="card-header text-2xl font-bold mb-6 pb-2">Benchmark Setup</h2>
         <form id="embedding-benchmark-form">

@@ -10,7 +10,7 @@
         <a href="{{ url_for('admin_servers') }}" class="text-[var(--color-primary-500)] hover:text-[var(--color-primary-700)]">&larr; Back to Server List</a>
     </div>
 
-    {% if server.server_type == 'ollama' %}
+    {% if server.server_type in ['ollama', 'exo'] %}
     <!-- Pull New Model Form -->
     <div class="card-style">
         <h2 class="card-header text-2xl font-bold mb-4 pb-2">Pull Model</h2>
@@ -34,7 +34,7 @@
     <div class="card-style">
         <h2 class="card-header text-2xl font-bold mb-4 pb-2">Model Management</h2>
         <div class="info-box p-4">
-            Model management (pulling, deleting, etc.) is not supported for vLLM servers through this UI. Models for vLLM servers are configured when the vLLM server is launched. You can refresh the model list from the main server management page.
+            Model management (pulling, deleting, etc.) is not supported for {{ server.server_type | upper }} servers through this UI. Models for {{ server.server_type | upper }} servers are configured when the server is launched. You can refresh the model list from the main server management page.
         </div>
     </div>
     {% endif %}
@@ -63,7 +63,7 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm">{{ model.modified_at[:19].replace('T', ' ') }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                {% if server.server_type == 'ollama' %}
+                                {% if server.server_type in ['ollama', 'exo'] %}
                                 <div class="flex justify-end gap-4">
                                     <form action="{{ url_for('admin_load_model', server_id=server.id) }}" method="post" class="inline">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
