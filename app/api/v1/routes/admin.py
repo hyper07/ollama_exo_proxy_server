@@ -20,7 +20,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.config import settings
 from app.core.security import verify_password
 from app.database.session import get_db
-from app.database.models import User, UserRole
+from app.database.models import User, UserRole, APIKey
 from app.crud import user_crud, apikey_crud, log_crud, server_crud, settings_crud, model_metadata_crud
 from app.schema.user import UserCreate
 from app.schema.server import ServerCreate, ServerUpdate
@@ -1577,12 +1577,22 @@ async def admin_edit_user_post(
 async def get_user_details(request: Request, user_id: str, db: AsyncIOMotorDatabase = Depends(get_db), admin_user: User = Depends(require_admin_user)):
     context = get_template_context(request)
     user = await user_crud.get_user_by_id(db, user_id=user_id)
-    if not user: raise HTTPException(status_code=404, detail="User not found")
+    if not user: 
+        raise HTTPException(status_code=404, detail="User not found")
+    
     context["user"] = user
     api_keys = await apikey_crud.get_api_keys_for_user(db, user_id=user_id)
+    
     logger.info(f"User {user.username} ({user_id}): Found {len(api_keys)} API keys")
-    for key in api_keys:
-        logger.info(f"  - Key: {key.key_name} ({key.key_prefix}), Active: {key.is_active}, Revoked: {key.is_revoked}")
+    logger.info(f"API keys object type: {type(api_keys)}")
+    
+    if api_keys:
+        logger.info(f"First key details: ID={api_keys[0].id}, Name={api_keys[0].key_name}, Type={type(api_keys[0])}")
+        for key in api_keys:
+            logger.info(f"  - Key: {key.key_name} ({key.key_prefix}), ID: {key.id}, Active: {key.is_active}, Revoked: {key.is_revoked}")
+    else:
+        logger.info("No API keys found in result")
+    
     context["api_keys"] = api_keys
     context["csrf_token"] = await get_csrf_token(request)
     return templates.TemplateResponse("admin/user_details.html", context)
@@ -1630,28 +1640,48 @@ async def create_user_api_key(
     rate_limit_requests: Optional[int] = Form(None),
     rate_limit_window_minutes: Optional[int] = Form(None),
 ):
-    # --- FIX: Check for existing key with the same name for this user ---
-    existing_key = await apikey_crud.get_api_key_by_name_and_user_id(db, key_name=key_name, user_id=user_id)
-    if existing_key:
-        flash(request, f"An API key with the name '{key_name}' already exists for this user.", "error")
+    try:
+        logger.info(f"Creating API key '{key_name}' for user {user_id}")
+        
+        # --- FIX: Check for existing key with the same name for this user ---
+        existing_key = await apikey_crud.get_api_key_by_name_and_user_id(db, key_name=key_name, user_id=user_id)
+        if existing_key:
+            flash(request, f"An API key with the name '{key_name}' already exists for this user.", "error")
+            return RedirectResponse(url=request.url_for("get_user_details", user_id=user_id), status_code=status.HTTP_303_SEE_OTHER)
+        # --- END FIX ---
+        
+        plain_key, db_api_key = await apikey_crud.create_api_key(
+            db, 
+            user_id=user_id, 
+            key_name=key_name,
+            rate_limit_requests=rate_limit_requests,
+            rate_limit_window_minutes=rate_limit_window_minutes
+        )
+        
+        logger.info(f"API key created successfully: {db_api_key.key_prefix} (ID: {db_api_key.id})")
+        
+        # Verify the key was saved by fetching it back
+        saved_key = await apikey_crud.get_api_key_by_id(db, str(db_api_key.id))
+        if not saved_key:
+            logger.error(f"Failed to retrieve newly created key {db_api_key.id}")
+            flash(request, "Error: API key was created but could not be verified. Please check the database.", "error")
+        else:
+            logger.info(f"Verified key exists in database: {saved_key.key_prefix}")
+        
+        context = get_template_context(request)
+        context["plain_key"] = plain_key
+        context["user_id"] = user_id
+        request.state.user = admin_user  # Admin user is already loaded
+        return templates.TemplateResponse("admin/key_created.html", context)
+        
+    except ValueError as e:
+        logger.error(f"ValueError creating API key: {e}")
+        flash(request, str(e), "error")
         return RedirectResponse(url=request.url_for("get_user_details", user_id=user_id), status_code=status.HTTP_303_SEE_OTHER)
-    # --- END FIX ---
-
-    current_admin_id = admin_user.id
-    
-    plain_key, _ = await apikey_crud.create_api_key(
-        db, 
-        user_id=user_id, 
-        key_name=key_name,
-        rate_limit_requests=rate_limit_requests,
-        rate_limit_window_minutes=rate_limit_window_minutes
-    )
-    
-    context = get_template_context(request)
-    context["plain_key"] = plain_key
-    context["user_id"] = user_id
-    request.state.user = admin_user  # Admin user is already loaded
-    return templates.TemplateResponse("admin/key_created.html", context)
+    except Exception as e:
+        logger.error(f"Unexpected error creating API key: {e}", exc_info=True)
+        flash(request, f"Failed to create API key: {str(e)}", "error")
+        return RedirectResponse(url=request.url_for("get_user_details", user_id=user_id), status_code=status.HTTP_303_SEE_OTHER)
 
 @router.post("/keys/{key_id}/toggle-active", name="admin_toggle_key_active", dependencies=[Depends(validate_csrf_token)])
 async def toggle_key_active_status(
@@ -1664,9 +1694,13 @@ async def toggle_key_active_status(
     if not key:
         raise HTTPException(status_code=404, detail="API Key not found or already revoked")
     
+    # Fetch the user to get the ID for redirect
+    await key.fetch_link(APIKey.user)
+    user_id = str(key.user.id)
+    
     new_status = "enabled" if key.is_active else "disabled"
     flash(request, f"API Key '{key.key_name}' has been {new_status}.", "success")
-    return RedirectResponse(url=request.url_for("get_user_details", user_id=key.user_id), status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=request.url_for("get_user_details", user_id=user_id), status_code=status.HTTP_303_SEE_OTHER)
 
 @router.post("/keys/{key_id}/revoke", name="admin_revoke_key", dependencies=[Depends(validate_csrf_token)])
 async def revoke_user_api_key(
@@ -1679,9 +1713,13 @@ async def revoke_user_api_key(
     if not key:
         raise HTTPException(status_code=404, detail="API Key not found")
     
+    # Fetch the user to get the ID for redirect
+    await key.fetch_link(APIKey.user)
+    user_id = str(key.user.id)
+    
     await apikey_crud.revoke_api_key(db, key_id=key_id)
     flash(request, f"API Key '{key.key_name}' has been revoked.", "success")
-    return RedirectResponse(url=request.url_for("get_user_details", user_id=key.user_id), status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=request.url_for("get_user_details", user_id=user_id), status_code=status.HTTP_303_SEE_OTHER)
 
 @router.post("/users/{user_id}/delete", name="delete_user_account", dependencies=[Depends(validate_csrf_token)])
 async def delete_user_account(request: Request, user_id: str, db: AsyncIOMotorDatabase = Depends(get_db), admin_user: User = Depends(require_admin_user)):

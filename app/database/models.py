@@ -19,8 +19,6 @@ class User(Document):
     role: UserRole = UserRole.USER
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
-    api_keys: List["APIKey"] = Field(default_factory=list)
-
     @property
     def is_admin_role(self) -> bool:
         """Check if user has admin role."""
@@ -40,8 +38,6 @@ class APIKey(Document):
     
     rate_limit_requests: Optional[int] = None
     rate_limit_window_minutes: Optional[int] = None
-
-    usage_logs: List["UsageLog"] = Field(default_factory=list)
 
 
 class UsageLog(Document):

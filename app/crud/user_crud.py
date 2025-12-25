@@ -45,26 +45,44 @@ async def get_users(db: AsyncIOMotorDatabase, skip: int = 0, limit: int = 100, s
         # Left join with API keys to count them
         {
             "$lookup": {
-                "from": "apikey",
+                "from": "APIKey",
                 "localField": "_id",
                 "foreignField": "user.$id",  # Reference to user ObjectId
                 "as": "api_keys"
+            }
+        },
+        # Left join with usage logs to count requests
+        {
+            "$lookup": {
+                "from": "UsageLog",
+                "let": {"api_key_ids": "$api_keys._id"},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$in": ["$api_key.$id", "$$api_key_ids"]
+                            }
+                        }
+                    }
+                ],
+                "as": "usage_logs"
             }
         },
         # Add computed fields
         {
             "$addFields": {
                 "key_count": {"$size": "$api_keys"},
-                "request_count": {"$sum": "$api_keys.usage_count"},  # Sum usage from all keys
+                "request_count": {"$size": "$usage_logs"},  # Count all usage logs
                 "last_used": {
-                    "$max": "$api_keys.last_used"  # Most recent usage across all keys
+                    "$max": "$usage_logs.request_timestamp"  # Most recent request timestamp
                 }
             }
         },
-        # Remove the api_keys array to avoid sending too much data
+        # Remove the temporary arrays to avoid sending too much data
         {
             "$project": {
-                "api_keys": 0
+                "api_keys": 0,
+                "usage_logs": 0
             }
         }
     ]
