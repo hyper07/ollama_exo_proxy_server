@@ -1603,6 +1603,8 @@ async def admin_user_stats(
     user_id: str,
     db: AsyncIOMotorDatabase = Depends(get_db),
     admin_user: User = Depends(require_admin_user),
+    sort_by: str = Query("request_count"),
+    sort_order: str = Query("desc"),
 ):
     user = await user_crud.get_user_by_id(db, user_id=user_id)
     if not user:
@@ -1610,6 +1612,8 @@ async def admin_user_stats(
         
     context = get_template_context(request)
     
+    # Fetch all statistics including key usage
+    key_usage_stats = await log_crud.get_usage_statistics(db, sort_by=sort_by, sort_order=sort_order, user_id=user_id)
     daily_stats = await log_crud.get_daily_usage_stats_for_user(db, user_id=user_id, days=30)
     hourly_stats = await log_crud.get_hourly_usage_stats_for_user(db, user_id=user_id)
     server_stats = await log_crud.get_server_load_stats_for_user(db, user_id=user_id)
@@ -1617,6 +1621,7 @@ async def admin_user_stats(
 
     context.update({
         "user": user,
+        "key_usage_stats": key_usage_stats,
         "daily_labels": [row.date.strftime('%Y-%m-%d') for row in daily_stats],
         "daily_data": [row.request_count for row in daily_stats],
         "hourly_labels": [row['hour'] for row in hourly_stats],
@@ -1625,6 +1630,8 @@ async def admin_user_stats(
         "server_data": [row.request_count for row in server_stats if row.server_name],
         "model_labels": [row.model_name for row in model_stats],
         "model_data": [row.request_count for row in model_stats],
+        "sort_by": sort_by,
+        "sort_order": sort_order,
     })
     
     # Create a new template for this

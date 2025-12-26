@@ -68,13 +68,24 @@ async def get_usage_statistics(db: AsyncIOMotorDatabase, sort_by: str = "request
     Counts actual usage logs per API key.
     If user_id is provided, only returns stats for that user's API keys.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # First, check if there are any usage logs at all
+    total_logs = await UsageLog.count()
+    logger.info(f"Total usage logs in database: {total_logs}")
+    
+    if user_id:
+        logger.info(f"Filtering usage statistics for user_id: {user_id}")
+    
     # MongoDB aggregation pipeline starting from usagelog collection
+    # Note: Beanie stores Links as DBRefs, so we need to use $id to access the ObjectId
     pipeline = [
-        # Lookup API key information
+        # Lookup API key information (using DBRef $id field)
         {
             "$lookup": {
-                "from": "apikey",
-                "localField": "api_key",
+                "from": "APIKey",
+                "localField": "api_key.$id",
                 "foreignField": "_id",
                 "as": "api_key_info"
             }
@@ -83,11 +94,19 @@ async def get_usage_statistics(db: AsyncIOMotorDatabase, sort_by: str = "request
         {
             "$unwind": "$api_key_info"
         },
-        # Lookup user information through API key
+        # Filter by user if specified (user is a DBRef, so we need to match $id)
+        *([
+            {
+                "$match": {
+                    "api_key_info.user.$id": PydanticObjectId(user_id)
+                }
+            }
+        ] if user_id else []),
+        # Lookup user information through API key (using $id from DBRef)
         {
             "$lookup": {
-                "from": "user",
-                "localField": "api_key_info.user",
+                "from": "User",
+                "localField": "api_key_info.user.$id",
                 "foreignField": "_id",
                 "as": "user_info"
             }
@@ -96,14 +115,6 @@ async def get_usage_statistics(db: AsyncIOMotorDatabase, sort_by: str = "request
         {
             "$unwind": "$user_info"
         },
-        # Filter by user if specified
-        *([
-            {
-                "$match": {
-                    "user_info._id": user_id
-                }
-            }
-        ] if user_id else []),
         # Group by API key details
         {
             "$group": {
@@ -139,6 +150,10 @@ async def get_usage_statistics(db: AsyncIOMotorDatabase, sort_by: str = "request
 
     # Execute aggregation on usagelog collection
     results = await UsageLog.aggregate(pipeline).to_list(length=None)
+    
+    logger.info(f"Usage statistics query returned {len(results)} results")
+    if results:
+        logger.debug(f"Sample result: {results[0]}")
 
     return results
 
@@ -226,11 +241,11 @@ async def get_server_load_stats(db: AsyncIOMotorDatabase):
     """Returns total requests per backend server."""
     # MongoDB aggregation pipeline
     pipeline = [
-        # Lookup server information
+        # Lookup server information (using DBRef $id)
         {
             "$lookup": {
-                "from": "exoserver",
-                "localField": "server",
+                "from": "ExoServer",
+                "localField": "server.$id",
                 "foreignField": "_id",
                 "as": "server_info"
             }
@@ -324,11 +339,11 @@ async def get_daily_usage_stats_for_user(db: AsyncIOMotorDatabase, user_id: str,
 
     # MongoDB aggregation pipeline
     pipeline = [
-        # Lookup API key information and filter by user
+        # Lookup API key information and filter by user (using DBRef $id)
         {
             "$lookup": {
-                "from": "apikey",
-                "localField": "api_key",
+                "from": "APIKey",
+                "localField": "api_key.$id",
                 "foreignField": "_id",
                 "as": "api_key_info"
             }
@@ -390,11 +405,11 @@ async def get_hourly_usage_stats_for_user(db: AsyncIOMotorDatabase, user_id: str
     """Returns total requests aggregated by the hour for a specific user."""
     # MongoDB aggregation pipeline
     pipeline = [
-        # Lookup API key information and filter by user
+        # Lookup API key information and filter by user (using DBRef $id)
         {
             "$lookup": {
-                "from": "apikey",
-                "localField": "api_key",
+                "from": "APIKey",
+                "localField": "api_key.$id",
                 "foreignField": "_id",
                 "as": "api_key_info"
             }
@@ -433,11 +448,11 @@ async def get_server_load_stats_for_user(db: AsyncIOMotorDatabase, user_id: str)
     """Returns total requests per backend server for a specific user."""
     # MongoDB aggregation pipeline
     pipeline = [
-        # Lookup API key information and filter by user
+        # Lookup API key information and filter by user (using DBRef $id)
         {
             "$lookup": {
-                "from": "apikey",
-                "localField": "api_key",
+                "from": "APIKey",
+                "localField": "api_key.$id",
                 "foreignField": "_id",
                 "as": "api_key_info"
             }
@@ -452,11 +467,11 @@ async def get_server_load_stats_for_user(db: AsyncIOMotorDatabase, user_id: str)
                 "api_key_info.user.$id": PydanticObjectId(user_id)
             }
         },
-        # Lookup server information
+        # Lookup server information (using DBRef $id)
         {
             "$lookup": {
-                "from": "exoserver",
-                "localField": "server",
+                "from": "ExoServer",
+                "localField": "server.$id",
                 "foreignField": "_id",
                 "as": "server_info"
             }
@@ -504,11 +519,11 @@ async def get_model_usage_stats_for_user(db: AsyncIOMotorDatabase, user_id: str)
     """Returns total requests per model for a specific user."""
     # MongoDB aggregation pipeline
     pipeline = [
-        # Lookup API key information and filter by user
+        # Lookup API key information and filter by user (using DBRef $id)
         {
             "$lookup": {
-                "from": "apikey",
-                "localField": "api_key",
+                "from": "APIKey",
+                "localField": "api_key.$id",
                 "foreignField": "_id",
                 "as": "api_key_info"
             }

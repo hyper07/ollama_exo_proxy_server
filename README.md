@@ -4,7 +4,7 @@
 ![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Built with](https://img.shields.io/badge/Built%20with-FastAPI-brightgreen)
 ![Release](https://img.shields.io/badge/release-v1.0.0-blue)
-[![GitHub stars](https://img.shields.io/github/stars/hyper07/ollama_exo_proxy_server.svg?style=social&label=Star)](https://github.com/hyper07/ollama_exo_proxy_server/stargazers/)
+[![GitHub stars](https://img.shields.io/github/stars/ParisNeo/exo_proxy_server.svg?style=social&label=Star)](https://github.com/ParisNeo/exo_proxy_server/stargazers/)
 
 Secure your distributed AI infrastructure. **Exo Proxy Fortress** is the ultimate security and management layer for your Exo AI clusters, designed to be set up in **60 seconds** by anyone, on any operating system.
 
@@ -101,6 +101,12 @@ Securing your AI traffic is now dead simple. In the **Settings -> HTTPS/SSL** me
 1.  **Upload & Go (Easiest):** Simply upload your `key.pem` and `cert.pem` files directly through the UI. The server handles the rest.
 2.  **Path-Based:** If your certificates are already on the server (e.g., managed by Certbot), just provide the full file paths.
 
+For local testing, you can generate a self-signed certificate with OpenSSL:
+
+```bash
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes -subj "/CN=localhost"
+```
+
 A server restart is required to apply changes, ensuring your connection is fully encrypted and secure from eavesdropping.
 
 ---
@@ -187,38 +193,15 @@ Once you've created an API key through the admin interface, you can use it to au
 
 **Chat Completion:**
 ```bash
-curl -X POST http://localhost:8080/api/chat \
+curl -X POST http://localhost:8080/api/chat/completions \
   -H "Authorization: Bearer your_api_key_here" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "llama3.2",
+    "model": "llama-3.2-1b",
     "messages": [
       {"role": "user", "content": "Hello! How are you?"}
     ],
     "stream": false
-  }'
-```
-
-**Text Generation:**
-```bash
-curl -X POST http://localhost:8080/api/generate \
-  -H "Authorization: Bearer your_api_key_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "llama3.2",
-    "prompt": "Write a short story about AI",
-    "stream": false
-  }'
-```
-
-**Embeddings:**
-```bash
-curl -X POST http://localhost:8080/api/embeddings \
-  -H "Authorization: Bearer your_api_key_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "nomic-embed-text",
-    "prompt": "This is a test sentence"
   }'
 ```
 
@@ -232,13 +215,13 @@ BASE_URL = "http://localhost:8080"
 
 # Chat completion
 response = requests.post(
-    f"{BASE_URL}/api/chat",
+    f"{BASE_URL}/api/chat/completions",
     headers={
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
     },
     json={
-        "model": "llama3.2",
+        "model": "llama-3.2-1b",
         "messages": [
             {"role": "user", "content": "What is machine learning?"}
         ],
@@ -255,14 +238,14 @@ const API_KEY = "your_api_key_here";
 const BASE_URL = "http://localhost:8080";
 
 // Chat completion
-fetch(`${BASE_URL}/api/chat`, {
+fetch(`${BASE_URL}/api/chat/completions`, {
   method: "POST",
   headers: {
     "Authorization": `Bearer ${API_KEY}`,
     "Content-Type": "application/json"
   },
   body: JSON.stringify({
-    model: "llama3.2",
+    model: "llama-3.2-1b",
     messages: [
       { role: "user", content: "Explain quantum computing" }
     ],
@@ -279,11 +262,11 @@ fetch(`${BASE_URL}/api/chat`, {
 For streaming responses, set `"stream": true` in your request:
 
 ```bash
-curl -X POST http://localhost:8080/api/chat \
+curl -X POST http://localhost:8080/api/chat/completions \
   -H "Authorization: Bearer your_api_key_here" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "llama3.2",
+    "model": "llama-3.2-1b",
     "messages": [
       {"role": "user", "content": "Tell me a story"}
     ],
@@ -293,19 +276,19 @@ curl -X POST http://localhost:8080/api/chat \
 
 ### Important Notes
 
-- **API Key Format:** Your API key should be included exactly as generated (format: `prefix_secret`)
+- **API Key Format:** Your API key should be included exactly as generated (format: `op_prefix_secret`)
 - **HTTPS:** If you've configured HTTPS, replace `http://` with `https://` in all examples
 - **Rate Limiting:** Each API key has configurable rate limits set by the administrator
-- **Endpoint Restrictions:** Some sensitive endpoints (like `/api/pull`, `/api/delete`) may be blocked for API key users by default
+- **Endpoint Restrictions:** Some sensitive management endpoints may be blocked for API key users by default
 
 ### Troubleshooting API Requests
 
 **"Method Not Allowed" Error:**
-- Ensure you're using the correct HTTP method (POST for `/api/chat`, `/api/generate`, etc.)
+- Ensure you're using the correct HTTP method (POST for `/api/chat/completions`, etc.)
 - Verify your API key is valid and active in the admin interface
 - Check that the endpoint isn't blocked in **Settings → Endpoint Security**
 - Try restarting the proxy server if you recently made configuration changes
-- Verify the route is accessible: `curl -X GET https://proxy.local/api/tags -H "Authorization: Bearer your_api_key"`
+- Verify the route is accessible: `curl -X GET https://proxy.local/api/models -H "Authorization: Bearer your_api_key"`
 
 **"401 Unauthorized" Error:**
 - Check that your API key is correctly formatted in the Authorization header: `Bearer your_api_key_here`
@@ -316,7 +299,7 @@ curl -X POST http://localhost:8080/api/chat \
 **"403 Forbidden" Error:**
 - The endpoint you're trying to access may be blocked for API key users
 - Check **Settings → Endpoint Security** to see which endpoints are restricted
-- Some management endpoints (like `/api/pull`, `/api/delete`) are blocked by default
+- Some management endpoints are blocked by default for security
 
 **Connection Issues:**
 - Verify the proxy server is running and accessible
@@ -487,13 +470,14 @@ chmod +x reset.sh
 
 ## Credits and Acknowledgements
 
-This application was developed with passion by the open-source community. A special thank you to:
+The Exo Proxy was developed with passion by the open-source community. A special thank you to:
 
+*   **[Exo](https://github.com/exo-explore/exo)** - The distributed AI inference framework that powers this proxy.
 *   **ParisNeo** for creating and maintaining this project.
 *   All contributors who have helped find and fix bugs.
-*   The teams behind **FastAPI**, **SQLAlchemy**, **Jinja2**, **Chart.js**, and **Tailwind CSS**.
+*   The teams behind **FastAPI**, **MongoDB**, **Jinja2**, **Chart.js**, and **Tailwind CSS**.
 
-Visit the project on [GitHub](https://github.com/hyper07/ollama_exo_proxy_server) to contribute, report issues, or star the repository!
+Visit the project on [GitHub](https://github.com/ParisNeo/exo_proxy_server) to contribute, report issues, or star the repository!
 
 ---
 

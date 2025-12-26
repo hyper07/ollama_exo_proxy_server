@@ -40,7 +40,7 @@
             <div class="space-y-4 text-current">
                 <ol class="list-decimal list-inside space-y-4">
                     <li>
-                        <strong>Configure Servers:</strong> Go to the <a href="{{ url_for('admin_servers') }}" class="font-semibold text-[var(--color-primary-600)] hover:underline">Server Management</a> page. Add the URLs for all your backend instances. The proxy supports <strong>Exo</strong> servers, <strong>Ollama</strong> servers, and <strong>vLLM</strong> (or any OpenAI-compatible) servers.
+                        <strong>Configure Servers:</strong> Go to the <a href="{{ url_for('admin_servers') }}" class="font-semibold text-[var(--color-primary-600)] hover:underline">Server Management</a> page. Add the URLs for all your backend Exo instances. The proxy is specifically designed for <strong>Exo</strong> servers and provides comprehensive management of distributed AI model inference.
                     </li>
                     <li>
                         <strong>Create a User:</strong> Navigate to the <a href="{{ url_for('admin_users') }}" class="font-semibold text-[var(--color-primary-600)] hover:underline">User Management</a> page. This is where you'll create accounts for your users or applications.
@@ -52,7 +52,7 @@
                         <strong>Copy the Key:</strong> The full API key is shown **only once** upon creation. Copy it immediately and store it in a secure location like a password manager.
                     </li>
                     <li>
-                        <strong>Use the Key:</strong> In your applications, replace your backend server URL (Exo, Ollama, or vLLM) with the proxy's URL (e.g., <code class="inline-code">http://127.0.0.1:8080</code>) and provide the API key in the <code class="inline-code">Authorization</code> header as a Bearer token. The proxy automatically handles translation between different API formats.
+                        <strong>Use the Key:</strong> In your applications, replace your Exo server URL with the proxy's URL (e.g., <code class="inline-code">http://127.0.0.1:8080</code>) and provide the API key in the <code class="inline-code">Authorization</code> header as a Bearer token. The proxy seamlessly routes requests to your Exo cluster with built-in authentication and monitoring.
                     </li>
                 </ol>
             </div>
@@ -65,13 +65,7 @@
                 <p>The main dashboard provides a real-time, auto-updating overview of your entire AI infrastructure.</p>
                 <ul class="list-disc list-inside space-y-3 pl-4">
                     <li><strong>System Status:</strong> These gauges show the live CPU, Memory, and Disk usage of the machine running the proxy server itself.</li>
-                    <li><strong>Active Models:</strong> This table shows a unified list of all models currently active across your backend servers.
-                        <ul class="list-['-_'] list-inside pl-4 mt-2">
-                            <li>For <strong>Exo</strong> servers, model status depends on the Exo server's current state.</li>
-                            <li>For <strong>Ollama</strong> servers, this means models currently loaded into VRAM/RAM. They have an "Expires In" timer and can be unloaded.</li>
-                            <li>For <strong>vLLM</strong> servers, all available models are considered "Always Active" as they are managed by the vLLM instance itself.</li>
-                        </ul>
-                    </li>
+                    <li><strong>Active Models:</strong> This table shows a unified list of all models currently active across your Exo cluster. Model status reflects the real-time state of your distributed inference network, showing which models are ready to handle requests.</li>
                     <li><strong>Load Balancer Status:</strong> This panel shows the health of all configured backend servers. "Online" means the proxy can reach the server, while "Offline" indicates a connection issue. It also shows a lifetime request count for each server.</li>
                     <li><strong>Rate Limit Queue Status:</strong> If you're using Redis, this shows a live view of API keys that are actively being rate-limited, how close they are to their limit, and when their usage window will reset.</li>
                 </ul>
@@ -82,11 +76,11 @@
         <div id="server-management" class="card-style scroll-mt-20">
             <h2 class="card-header text-2xl font-bold mb-6 pb-2">🔧 Server Management</h2>
             <div class="space-y-4 text-current">
-                <p>This is where you configure the backend AI servers that the proxy will manage and distribute requests to.</p>
+                <p>This is where you configure your Exo cluster nodes that the proxy will manage and distribute requests to.</p>
                 <ul class="list-disc list-inside space-y-3 pl-4">
-                    <li><strong>Adding Servers:</strong> You can add <strong>Exo</strong> servers, <strong>Ollama</strong> servers, and <strong>vLLM</strong> (or any OpenAI-compatible) servers. The proxy automatically handles translation between different API formats. You can also add an optional API key if your backend server requires one.</li>
-                    <li><strong>Refreshing Models:</strong> Clicking "Refresh" fetches the latest list of available models from a server and stores it in the proxy's database. This is crucial for the "Smart Model Routing" feature. Model lists are also refreshed automatically in the background.</li>
-                    <li><strong>Managing Models:</strong> Clicking "Manage Models" takes you to a detailed view for that server. For Ollama servers, you can pull new models, update existing ones, delete models from disk, and trigger a model to be loaded into or unloaded from memory. For Exo servers, model management capabilities depend on the Exo server's features. These actions are not applicable to vLLM servers, which manage models independently.</li>
+                    <li><strong>Adding Servers:</strong> Add each Exo node in your distributed cluster by providing its URL. You can also configure an optional API key if your Exo instance requires authentication.</li>
+                    <li><strong>Refreshing Models:</strong> Clicking "Refresh" fetches the latest list of available models from your Exo cluster and stores it in the proxy's database. This ensures accurate model routing and availability information. Model lists are also refreshed automatically in the background.</li>
+                    <li><strong>Server Health Monitoring:</strong> The proxy continuously monitors the health of each Exo node, showing real-time status indicators and connection metrics.</li>
                 </ul>
             </div>
         </div>
@@ -136,8 +130,8 @@
 
                 <div>
                     <h3 class="text-xl font-semibold mb-2">Embedding Playground & Benchmark</h3>
-                    <div class="mt-4 p-3 rounded-md text-sm info-box mb-4">
-                        <strong>Note:</strong> This playground is for testing embedding benchmarks with Ollama (via <a href="https://github.com/hyper07/ollama_proxy_server" target="_blank" class="font-semibold underline">ollama_proxy_server</a>). Exo doesn't support embedding models yet.
+                    <div class="mt-4 p-3 rounded-md text-sm warning-box mb-4">
+                        <strong>Note:</strong> Embedding model support is pending. This feature will be available once Exo adds support for embedding models in future releases.
                     </div>
                     <p>A powerful tool for data scientists and developers to visualize and compare how different embedding models understand semantic relationships. Perfect for evaluating model performance, understanding model behavior, and selecting the best embedding model for your use case.</p>
                     <ul class="list-disc list-inside space-y-2 mt-3 pl-4">
@@ -186,9 +180,9 @@
             <div class="space-y-8 text-current">
                 <div>
                     <h3 class="text-xl font-semibold mb-2">Endpoint Blocking</h3>
-                    <p>This is a critical security layer. By default, the proxy **blocks** API key holders from accessing sensitive Ollama endpoints like <code class="inline-code">/api/pull</code>, <code class="inline-code">/api/delete</code>, and <code class="inline-code">/api/create</code>. This prevents users from consuming excessive resources or modifying your backend servers.</p>
+                    <p>This is a critical security layer. By default, the proxy **blocks** API key holders from accessing sensitive Exo management endpoints. This prevents users from consuming excessive resources or modifying your Exo cluster configuration.</p>
                      <div class="mt-4 p-3 rounded-md text-sm info-box">
-                        <strong>Customizable:</strong> You can change the list of blocked endpoints in the <a href="{{ url_for('admin_settings') }}" class="font-semibold underline">Settings</a> page under "Endpoint Security".
+                        <strong>Customizable:</strong> You can configure the list of blocked endpoints in the <a href="{{ url_for('admin_settings') }}" class="font-semibold underline">Settings</a> page under "Endpoint Security".
                     </div>
                 </div>
                 <div>
@@ -219,12 +213,14 @@
                     <h3 class="text-xl font-semibold mb-2">cURL</h3>
                     <div class="code-block-wrapper">
                         <pre><code class="language-bash">
-curl http://127.0.0.1:8080/api/generate \
+curl http://127.0.0.1:8080/api/chat/completions \
   -H "Authorization: Bearer op_prefix_secret" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "llama3",
-    "prompt": "Why is the sky blue?",
+    "model": "llama-3.2-1b",
+    "messages": [
+      {"role": "user", "content": "Why is the sky blue?"}
+    ],
     "stream": false
   }'</code></pre>
                         <button class="copy-button">Copy</button>
@@ -237,7 +233,7 @@ curl http://127.0.0.1:8080/api/generate \
 import requests
 import json
 
-proxy_url = "http://127.0.0.1:8080/api/chat"
+proxy_url = "http://127.0.0.1:8080/api/chat/completions"
 api_key = "op_prefix_secret"
 
 headers = {
@@ -246,7 +242,7 @@ headers = {
 }
 
 data = {
-    "model": "llama3",
+    "model": "llama-3.2-1b",
     "messages": [
         {"role": "user", "content": "Explain quantum computing simply."}
     ],
@@ -297,12 +293,13 @@ print(response.json())
         <div id="credits" class="card-style scroll-mt-20">
             <h2 class="card-header text-2xl font-bold mb-6 pb-2">💖 Credits & Acknowledgements</h2>
             <div class="space-y-4 text-current">
-                <p>This application was developed with passion by the open-source community. It stands on the shoulders of giants and wouldn't be possible without the following incredible projects:</p>
+                <p>The Exo Proxy was developed with passion by the open-source community. It stands on the shoulders of giants and wouldn't be possible without the following incredible projects:</p>
                 <ul class="list-disc list-inside space-y-2 pl-4">
-                    <li><strong><a href="https://fastapi.tiangolo.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">FastAPI</a></strong>, <strong><a href="https://www.sqlalchemy.org/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">SQLAlchemy</a></strong>, <strong><a href="https://jinja.palletsprojects.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Jinja2</a></strong>, <strong><a href="https://www.chartjs.org/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Chart.js</a></strong>, and <strong><a href="https://tailwindcss.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Tailwind CSS</a></strong>.</li>
+                    <li><strong><a href="https://github.com/exo-explore/exo" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Exo</a></strong> - The distributed AI inference framework that powers this proxy.</li>
+                    <li><strong><a href="https://fastapi.tiangolo.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">FastAPI</a></strong>, <strong><a href="https://www.mongodb.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">MongoDB</a></strong>, <strong><a href="https://jinja.palletsprojects.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Jinja2</a></strong>, <strong><a href="https://www.chartjs.org/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Chart.js</a></strong>, and <strong><a href="https://tailwindcss.com/" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">Tailwind CSS</a></strong>.</li>
                 </ul>
-                <p class="pt-4">Project built and maintained by <strong>ParisNeo</strong> with help from AI and cool developers (check the contributors list in the github page).</p>
-                <p>Visit the project on <a href="https://github.com/hyper07/ollama_exo_proxy_server" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">GitHub</a> to contribute, report issues, or star the repository!</p>
+                <p class="pt-4">Project built and maintained by <strong>ParisNeo</strong> with help from AI and cool developers (check the contributors list in the GitHub page).</p>
+                <p>Visit the project on <a href="https://github.com/ParisNeo/exo_proxy_server" target="_blank" class="font-semibold text-[var(--color-primary-600)] hover:underline">GitHub</a> to contribute, report issues, or star the repository!</p>
             </div>
         </div>
     </div>

@@ -38,7 +38,9 @@ services:
       "
 
   nginx:
-    image: nginx:1.25-alpine
+    build:
+      context: ./infra/nginx
+      dockerfile: Dockerfile
     depends_on:
       - app
     ports:
@@ -47,8 +49,7 @@ services:
     networks:
       - proxy_network
     volumes:
-      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./certs:/etc/nginx/certs:ro
+      - nginx_certs:/etc/nginx/certs
     restart: unless-stopped
 
   mongodb:
@@ -84,3 +85,4 @@ networks:
 volumes:
   mongodb_data:
   redis_data:
+  nginx_certs:
