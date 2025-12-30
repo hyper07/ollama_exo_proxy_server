@@ -1,10 +1,15 @@
 # --- Build Stage ---
 FROM python:3.13-slim AS builder
 
-# Install system dependencies for psutil and other packages
+# Install system dependencies for psutil, chromadb, and other packages
+# chroma-hnswlib requires C++11 compiler support
 RUN apt-get update && apt-get install -y \
     gcc \
+    g++ \
+    make \
+    cmake \
     python3-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

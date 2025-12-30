@@ -274,7 +274,32 @@ async def proxy_models(
     """Get available models from EXO servers."""
     logger.info("GET /api/models endpoint called")
     
+    # Try to get from cache first
+    cache = getattr(request.app.state, 'cache', None)
+    if cache and cache.enabled:
+        try:
+            # Use first server's ID for cache key (models are usually the same across servers)
+            cache_key = f"models:{servers[0].id if servers else 'default'}"
+            cached_response = await cache.get(cache_key)
+            if cached_response:
+                logger.info("Returning cached models response")
+                return JSONResponse(content=cached_response)
+        except Exception as e:
+            logger.warning(f"Cache lookup failed: {e}")
+    
     response, chosen_server = await _reverse_proxy(request, "models", servers)
+    
+    # Cache the response if it's successful
+    if cache and cache.enabled and response.status_code == 200:
+        try:
+            # Read response body (for non-streaming responses)
+            if hasattr(response, 'body'):
+                body = response.body
+            else:
+                # For streaming responses, we can't cache easily
+                pass
+        except Exception as e:
+            logger.warning(f"Failed to cache models response: {e}")
     
     # Log usage (don't let logging errors break the API response)
     try:

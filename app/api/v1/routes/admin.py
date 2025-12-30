@@ -1433,6 +1433,9 @@ async def admin_settings_post(
         # Priority 2: New Upload
         if file_upload and file_upload.filename:
             try:
+                # Ensure SSL directory exists
+                SSL_DIR.mkdir(exist_ok=True)
+                
                 content_bytes = await file_upload.read()
                 content_str = content_bytes.decode('utf-8')
                 with open(managed_path, "w") as f:

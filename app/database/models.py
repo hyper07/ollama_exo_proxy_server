@@ -78,3 +78,30 @@ class ModelMetadata(Document):
     is_chat_model: bool = True
     is_fast_model: bool = False
     priority: int = 10
+
+
+class KnowledgeBase(Document):
+    """A knowledge base collection for RAG."""
+    name: str = Field(unique=True, index=True)
+    description: Optional[str] = None
+    embedding_model: str  # Model to use for generating embeddings
+    chunk_size: int = Field(default=1000)  # Characters per chunk
+    chunk_overlap: int = Field(default=200)  # Overlap between chunks
+    created_by: Link[User]
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    is_active: bool = True
+
+
+class RAGDocument(Document):
+    """A document in a knowledge base."""
+    knowledge_base: Link[KnowledgeBase]
+    filename: str
+    file_type: str  # e.g., 'pdf', 'txt', 'md', 'docx'
+    file_size: int  # Size in bytes
+    content: str  # Full document content
+    metadata: Dict[str, Any] = Field(default_factory=dict)  # Additional metadata
+    uploaded_by: Link[User]
+    uploaded_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    chunk_count: int = Field(default=0)  # Number of chunks created
+    is_indexed: bool = Field(default=False)  # Whether chunks are in vector DB

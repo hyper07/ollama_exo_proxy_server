@@ -1,0 +1,132 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Knowledge Bases{% endblock %}
+
+{% block header_title %}RAG Knowledge Bases{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Create New Knowledge Base Button -->
+    <div class="flex justify-between items-center">
+        <h2 class="text-xl font-bold">Your Knowledge Bases</h2>
+        <button onclick="showCreateKBModal()" class="px-4 py-2 bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] rounded-md text-white">
+            + Create Knowledge Base
+        </button>
+    </div>
+
+    <!-- Knowledge Bases List -->
+    <div class="card-style">
+        {% if knowledge_bases %}
+        <div class="overflow-x-auto">
+            <table class="min-w-full">
+                <thead>
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Description</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Embedding Model</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Documents</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/10">
+                    {% for kb in knowledge_bases %}
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">{{ kb.name }}</td>
+                        <td class="px-6 py-4 text-sm text-gray-300">{{ kb.description or "No description" }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono">{{ kb.embedding_model }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">{{ kb.chunk_count or 0 }} chunks</td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-2 py-1 text-xs rounded-full {{ 'bg-green-500/20 text-green-300' if kb.is_active else 'bg-gray-500/20 text-gray-300' }}">
+                                {{ 'Active' if kb.is_active else 'Inactive' }}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                            <a href="{{ url_for('admin_knowledge_base_details', kb_id=kb.id) }}" class="text-[var(--color-primary-500)] hover:underline">Manage</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-12 text-gray-400">
+            <p>No knowledge bases yet. Create one to get started with RAG!</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Create Knowledge Base Modal -->
+<div id="createKBModal" class="hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center">
+    <div class="bg-[var(--bg-color)] border border-white/20 rounded-lg p-6 max-w-2xl w-full mx-4">
+        <h3 class="text-xl font-bold mb-4">Create Knowledge Base</h3>
+        <form id="createKBForm" onsubmit="createKnowledgeBase(event)">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Name *</label>
+                    <input type="text" name="name" required class="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Description</label>
+                    <textarea name="description" rows="2" class="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Embedding Model *</label>
+                    <input type="text" name="embedding_model" required placeholder="e.g., text-embedding-ada-002" class="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20">
+                    <p class="text-xs text-gray-400 mt-1">Model name for generating embeddings</p>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Chunk Size</label>
+                        <input type="number" name="chunk_size" value="1000" class="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Chunk Overlap</label>
+                        <input type="number" name="chunk_overlap" value="200" class="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20">
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-6">
+                <button type="button" onclick="hideCreateKBModal()" class="px-4 py-2 rounded-md border border-white/20 hover:bg-white/10">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-[var(--color-primary-600)] hover:bg-[var(--color-primary-700)] rounded-md text-white">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showCreateKBModal() {
+    document.getElementById('createKBModal').classList.remove('hidden');
+}
+
+function hideCreateKBModal() {
+    document.getElementById('createKBModal').classList.add('hidden');
+}
+
+async function createKnowledgeBase(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData);
+    
+    try {
+        const response = await fetch("{{ url_for('admin_create_knowledge_base') }}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: new URLSearchParams(data)
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            alert('Knowledge base created successfully!');
+            location.reload();
+        } else {
+            alert('Error: ' + result.error);
+        }
+    } catch (error) {
+        alert('Error creating knowledge base: ' + error.message);
+    }
+}
+</script>
+{% endblock %}
+

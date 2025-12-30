@@ -81,6 +81,18 @@
                     <option value="" disabled>No chat models found</option>
                 {% endif %}
             </select>
+            <select id="kb-selector" multiple class="px-3 py-2 rounded-md shadow-sm focus:outline-none focus:ring-[var(--color-primary-500)] focus:border-[var(--color-primary-500)] sm:text-sm max-w-xs" title="Select Knowledge Bases for RAG (hold Ctrl/Cmd to select multiple)">
+                <option value="" disabled>Knowledge Bases (RAG)</option>
+                {% if knowledge_bases %}
+                    {% for kb in knowledge_bases %}
+                        {% if kb.is_active %}
+                        <option value="{{ kb.id }}">{{ kb.name }}</option>
+                        {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <option value="" disabled>No knowledge bases</option>
+                {% endif %}
+            </select>
             <button id="test-prompts-btn" title="Test Prompts" class="p-2 rounded hover:bg-white/10">
                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
             </button>
@@ -602,6 +614,15 @@ SUPPORTED ANNOTATION SCHEMAS:
         }
         if (thinkOption !== null) {
             body.think_option = thinkOption;
+        }
+        
+        // Add knowledge base IDs for RAG
+        const kbSelector = document.getElementById('kb-selector');
+        if (kbSelector) {
+            const selectedKBs = Array.from(kbSelector.selectedOptions).map(opt => opt.value).filter(v => v);
+            if (selectedKBs.length > 0) {
+                body.kb_ids = selectedKBs;
+            }
         }
 
         try {

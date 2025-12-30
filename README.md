@@ -4,11 +4,75 @@
 ![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Built with](https://img.shields.io/badge/Built%20with-FastAPI-brightgreen)
 ![Release](https://img.shields.io/badge/release-v1.0.0-blue)
-[![GitHub stars](https://img.shields.io/github/stars/ParisNeo/exo_proxy_server.svg?style=social&label=Star)](https://github.com/ParisNeo/exo_proxy_server/stargazers/)
+[![GitHub stars](https://img.shields.io/github/stars/hyper07/ollama_exo_proxy_server.svg?style=social&label=Star)](https://github.com/hyper07/ollama_exo_proxy_server/stargazers/)
 
 Secure your distributed AI infrastructure. **Exo Proxy Fortress** is the ultimate security and management layer for your Exo AI clusters, designed to be set up in **60 seconds** by anyone, on any operating system.
 
+> **Note:** This is a fork of [ParisNeo/exo_proxy_server](https://github.com/ParisNeo/exo_proxy_server) with significant enhancements including **full Dockerization** and **RAG (Retrieval-Augmented Generation) implementation** for knowledge base management and semantic search capabilities.
+
 Whether you're running a home AI cluster or managing enterprise-scale distributed inference, this tool transforms your vulnerable Exo endpoints into a managed, secure, and **deeply customizable** AI command center.
+
+---
+
+## 📋 Project Status & Roadmap
+
+### ✅ Completed Features
+
+- ✅ **Full Dockerization** - Complete Docker Compose setup with MongoDB, Redis, Nginx, and automatic SSL certificate generation
+- ✅ **RAG Implementation** - Complete Retrieval-Augmented Generation system with:
+  - Knowledge base management
+  - Document upload and automatic chunking
+  - Vector embeddings with ChromaDB
+  - Semantic search and retrieval
+  - Chat playground integration
+- ✅ **Gunicorn Production Setup** - Application-level cluster management with Gunicorn + Uvicorn workers
+- ✅ **SSL Certificate Upload** - Web UI for uploading SSL certificates (key.pem and cert.pem)
+- ✅ **Multi-Server Management** - Support for managing multiple Exo clusters and Ollama servers from a single interface
+- ✅ **Automatic SSL Generation** - Nginx container automatically generates self-signed certificates for localhost
+- ✅ **Enhanced Documentation** - Comprehensive README with architecture explanations and usage guides
+- ✅ **KV Cache System** - Redis-based caching for:
+  - API response caching (reduces backend load)
+  - Embedding caching (speeds up RAG operations significantly)
+  - RAG query result caching
+  - Model metadata caching
+
+### 🚧 In Progress / Recent Additions
+
+- 🚧 **RAG Performance Optimization** - Improving embedding generation and retrieval speed
+- 🚧 **Enhanced Error Handling** - Better error messages and recovery for RAG operations
+- 🚧 **Documentation Improvements** - Expanding help pages and API documentation
+
+### 📋 Future Work / Planned Features
+
+- 📋 **Advanced RAG Features**:
+  - Support for PDF and other binary document formats
+  - Automatic document metadata extraction
+  - Multi-language document support
+  - Document versioning and update management
+- 📋 **Enhanced Analytics**:
+  - RAG usage statistics and metrics
+  - Knowledge base performance monitoring
+  - Query analytics and optimization suggestions
+- 📋 **API Enhancements**:
+  - RESTful API for knowledge base management
+  - Webhook support for document indexing events
+  - Batch document upload API
+- 📋 **Security Improvements**:
+  - Document-level access control for knowledge bases
+  - Encrypted document storage option
+  - Audit logging for RAG operations
+- 📋 **Integration Features**:
+  - Webhook integrations for external systems
+  - Export/import knowledge bases
+  - Backup and restore functionality
+- 📋 **UI/UX Enhancements**:
+  - Real-time document indexing progress
+  - Advanced search filters for knowledge bases
+  - Document preview in chat context
+- 📋 **Performance & Scalability**:
+  - Distributed ChromaDB support
+  - Caching layer for frequently accessed documents
+  - Async document processing queue
 
 ---
 
@@ -33,6 +97,7 @@ Exo enables running massive AI models across multiple devices with automatic dis
 
 *   🧪 **Model Playgrounds & Benchmarking:**
     *   **Interactive Chat Playground:** Test your distributed models with streaming responses, multi-modal inputs, and conversation management.
+    *   **RAG (Retrieval-Augmented Generation):** Build knowledge bases from your documents and enhance chat interactions with semantic search and context retrieval.
 
 *   📊 **Mission Control Dashboard:**
     *   Real-time monitoring of cluster health, device utilization, and model performance.
@@ -54,12 +119,14 @@ Exo enables running massive AI models across multiple devices with automatic dis
     *   **Rate Limiting & Brute-Force Protection:** Prevent abuse and secure your admin login (powered by Redis).
 
 *   🚀 **High-Performance Engine:**
-    *   **Intelligent Load Balancing:** Distribute requests across multiple Exo servers for maximum speed and high availability.
+    *   **Intelligent Load Balancing:** Distribute requests across multiple Exo servers, Ollama instances, or mixed clusters for maximum speed and high availability.
     *   **Smart Model Routing:** Automatically sends requests only to servers that have the specific model available, preventing failed requests and saving compute resources.
     *   **Automatic Retries:** The proxy resiliently handles temporary server hiccups with an exponential backoff strategy, making your AI services more reliable.
+    *   **Application-Level Management:** Built on Gunicorn for production-grade performance, allowing you to manage multiple cluster servers without Kubernetes complexity.
 
 *   🧪 **Model Playgrounds & Benchmarking:**
     *   **Interactive Chat Playground:** Go beyond simple API calls. Chat with any model in a familiar interface that supports streaming, multi-modal inputs (paste images directly!), and full conversation history management (import/export).
+    *   **RAG Knowledge Bases:** Upload documents, automatically chunk and index them with vector embeddings, and retrieve relevant context during chat conversations for more accurate and informed responses.
 
 *   📊 **Mission Control Dashboard:**
     *   Real-time monitoring of your proxy's health (CPU, Memory, Disk), see all active models across all cluster nodes, monitor the **live health of your load balancer**, and watch API rate-limit queues fill and reset in real-time.
@@ -76,10 +143,63 @@ Exo enables running massive AI models across multiple devices with automatic dis
     *   From there, manage individual API keys with per-key rate limits, and temporarily disable or re-enable keys on the fly.
 
 *   🌐 **Multi-Node Cluster Management:**
-    *   Centrally manage all your Exo cluster nodes. The proxy load-balances requests and provides a unified, federated view of all available models from all your distributed devices combined.
+    *   Centrally manage all your Exo cluster nodes, Ollama servers, or mixed environments at the **application level** (no Kubernetes required). The proxy load-balances requests and provides a unified, federated view of all available models from all your distributed devices combined. Add or remove servers dynamically through the web UI without infrastructure changes.
 
 *   ✨ **Effortless 1-Click Setup:**
     *   No Docker, no `pip install`, no command-line wizardry required. Just download and run a single script.
+
+---
+
+## 🧠 RAG (Retrieval-Augmented Generation)
+
+This fork includes a complete RAG implementation that allows you to build knowledge bases from your documents and enhance chat interactions with semantic search. The RAG system uses **KV caching** to dramatically improve performance by caching embeddings and query results.
+
+## ⚡ KV Cache System
+
+The proxy includes a comprehensive Redis-based KV cache system that significantly improves performance:
+
+### Cache Types
+
+- **Embedding Cache**: Caches generated embeddings for document chunks and queries, avoiding expensive regeneration. Embeddings are cached for 7 days by default.
+- **RAG Query Cache**: Caches semantic search results for frequently asked questions, reducing vector database queries.
+- **API Response Cache**: Caches non-streaming API responses (like model lists) to reduce backend server load.
+- **Model Metadata Cache**: Caches server model information to reduce database queries.
+
+### Benefits
+
+- **Faster RAG Operations**: Embedding generation is expensive - caching dramatically speeds up document indexing and query processing
+- **Reduced Backend Load**: Cached responses reduce requests to Exo/Ollama servers
+- **Better User Experience**: Faster response times for repeated queries
+- **Cost Savings**: Fewer API calls to embedding models means lower compute costs
+
+### Cache Configuration
+
+The cache system is automatically enabled when Redis is available. Cache TTLs (Time To Live) are configurable:
+- Embeddings: 7 days (configurable)
+- RAG queries: 1 hour (configurable)
+- API responses: 5 minutes (configurable)
+- Model metadata: 10 minutes (configurable)
+
+Cache statistics and management can be accessed through the admin interface (coming soon).
+
+---
+
+### Key RAG Features
+
+*   **Knowledge Base Management:** Create multiple knowledge bases to organize your documents by topic, project, or domain.
+*   **Document Upload & Indexing:** Upload text files (.txt, .md, .json, etc.) and automatically chunk them with configurable size and overlap.
+*   **Vector Embeddings:** Documents are automatically embedded using your Exo embedding models and stored in ChromaDB for fast retrieval.
+*   **Semantic Search:** Query your knowledge bases to find the most relevant document chunks based on semantic similarity.
+*   **Chat Integration:** Select knowledge bases in the Chat Playground to automatically include relevant context in your conversations.
+*   **Multi-KB Support:** Query multiple knowledge bases simultaneously for comprehensive context retrieval.
+
+### How to Use RAG
+
+1. Navigate to **Knowledge Bases (RAG)** in the sidebar
+2. Create a new knowledge base and specify an embedding model
+3. Upload documents to your knowledge base (they'll be automatically indexed)
+4. In the Chat Playground, select one or more knowledge bases from the dropdown
+5. Your queries will automatically include relevant context from your documents
 
 ---
 
@@ -98,8 +218,10 @@ Giving every user an API key shouldn't mean giving them the keys to the kingdom.
 
 Securing your AI traffic is now dead simple. In the **Settings -> HTTPS/SSL** menu, you have two easy options:
 
-1.  **Upload & Go (Easiest):** Simply upload your `key.pem` and `cert.pem` files directly through the UI. The server handles the rest.
-2.  **Path-Based:** If your certificates are already on the server (e.g., managed by Certbot), just provide the full file paths.
+1.  **Upload & Go (Easiest):** Simply upload your `key.pem` and `cert.pem` files directly through the UI. The files are automatically saved to the `.ssl` directory and configured for use. After uploading, restart the server for HTTPS to take effect.
+2.  **Path-Based:** If your certificates are already on the server (e.g., managed by Certbot), just provide the full file paths in the text fields.
+
+**Important:** After uploading SSL certificates or changing SSL settings, you must restart the server for the changes to take effect. The uploaded files are stored in the `.ssl` directory in the project root.
 
 For local testing, you can generate a self-signed certificate with OpenSSL:
 
@@ -342,7 +464,7 @@ The User Management page gives you a sortable, high-level overview. From here, c
 
 ### Step 6: Test & Benchmark in the Playgrounds
 
-Use the built-in playground to evaluate your models. The **Chat Playground** provides a familiar UI to test conversational models with streaming and image support.
+Use the built-in playground to evaluate your models. The **Chat Playground** provides a familiar UI to test conversational models with streaming and image support. You can also create **Knowledge Bases** and enable **RAG** to enhance your chat interactions with document context.
 
 ### Step 7: Master Your Analytics
 
@@ -358,9 +480,35 @@ The built-in Help page is now a rich document with a sticky table of contents th
 
 ---
 
+## 🚀 Architecture: Gunicorn-Based Application-Level Management
+
+This proxy uses **Gunicorn** with Uvicorn workers instead of Kubernetes for deployment. This architectural choice provides significant advantages for managing distributed AI clusters:
+
+### Why Gunicorn Instead of Kubernetes?
+
+*   **Application-Level Cluster Management:** Unlike Kubernetes which operates at the infrastructure level, Gunicorn allows us to manage multiple Ollama or Exo cluster servers directly at the application level. This means you can add, remove, and configure backend servers through the web UI without touching infrastructure configuration.
+
+*   **Simplified Deployment:** No need for complex Kubernetes manifests, service discovery, or ingress controllers. The proxy handles all server management through its built-in load balancer and routing logic.
+
+*   **Unified Control Plane:** All your distributed AI servers (whether Exo clusters, Ollama instances, or mixed environments) are managed from a single application interface. The proxy automatically discovers models, routes requests intelligently, and provides unified analytics across all your servers.
+
+*   **Flexible Server Configuration:** Add servers dynamically through the web interface. Each server can have different configurations, API keys, and capabilities, all managed at the application level without infrastructure changes.
+
+*   **Production-Ready Performance:** Gunicorn with Uvicorn workers provides excellent performance for async FastAPI applications, with configurable worker processes for optimal resource utilization.
+
+### Multi-Server Management
+
+The proxy excels at managing heterogeneous AI infrastructure:
+- **Multiple Exo Clusters:** Connect multiple Exo cluster nodes and the proxy will intelligently route requests based on model availability
+- **Mixed Environments:** Combine Exo clusters with Ollama servers in a single unified interface
+- **Dynamic Discovery:** Automatically discover and catalog all available models across all connected servers
+- **Smart Routing:** Route requests only to servers that have the required model, preventing failed requests
+
+---
+
 ## 🐳 Docker Deployment (Recommended)
 
-The easiest way to run Exo Proxy Fortress is with Docker Compose, which provides the full stack (app, MongoDB, Redis) in isolated containers.
+This version has been fully dockerized for easy deployment. The easiest way to run Exo Proxy Fortress is with Docker Compose, which provides the full stack (app, MongoDB, Redis, Nginx) in isolated containers with automatic SSL certificate generation for localhost. The application runs with **Gunicorn** for production-grade performance and reliability.
 
 ### Quick Start
 ```bash
@@ -392,8 +540,23 @@ docker-compose down
 The setup automatically handles:
 - MongoDB database initialization
 - Redis caching setup
+- Nginx reverse proxy with automatic SSL certificate generation (for localhost)
+- Gunicorn WSGI server with Uvicorn workers for production deployment
 - Volume persistence for data
 - Automatic service dependencies
+- ChromaDB vector database for RAG functionality
+
+### Production Configuration
+
+The Docker setup uses Gunicorn with configurable workers (default: 4). You can customize this via environment variables:
+
+```bash
+# Set number of worker processes
+GUNICORN_WORKERS=8
+
+# Set bind address and port
+GUNICORN_BIND=0.0.0.0:8080
+```
 
 ---
 
@@ -473,11 +636,12 @@ chmod +x reset.sh
 The Exo Proxy was developed with passion by the open-source community. A special thank you to:
 
 *   **[Exo](https://github.com/exo-explore/exo)** - The distributed AI inference framework that powers this proxy.
-*   **ParisNeo** for creating and maintaining this project.
+*   **[ParisNeo/exo_proxy_server](https://github.com/ParisNeo/exo_proxy_server)** - The original project that this fork is based on.
+*   **hyper07** - Dockerization, RAG implementation, and additional enhancements.
 *   All contributors who have helped find and fix bugs.
-*   The teams behind **FastAPI**, **MongoDB**, **Jinja2**, **Chart.js**, and **Tailwind CSS**.
+*   The teams behind **FastAPI**, **MongoDB**, **ChromaDB**, **Jinja2**, **Chart.js**, and **Tailwind CSS**.
 
-Visit the project on [GitHub](https://github.com/ParisNeo/exo_proxy_server) to contribute, report issues, or star the repository!
+Visit this project on [GitHub](https://github.com/hyper07/ollama_exo_proxy_server) to contribute, report issues, or star the repository!
 
 ---
 

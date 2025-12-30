@@ -11,10 +11,11 @@ import httpx
 
 from app.database.session import get_db
 from app.database.models import User
-from app.crud import server_crud
+from app.crud import server_crud, rag_crud
 from app.api.v1.dependencies import validate_csrf_token_header
 from app.api.v1.routes.admin import require_admin_user, get_template_context, templates
 from app.core.test_prompts import PREBUILT_TEST_PROMPTS
+from app.services.rag_service import RAGService
 
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ async def admin_playground_ui(
     context["model_groups"] = await server_crud.get_all_models_grouped_by_server(db, filter_type='chat')
     context["selected_model"] = model
     context["csrf_token"] = await get_csrf_token(request)
+    context["knowledge_bases"] = await rag_crud.get_all_knowledge_bases(db)
     return templates.TemplateResponse("admin/model_playground.html", context)
 
 
@@ -46,9 +48,65 @@ async def admin_playground_stream(
         model_name = data.get("model")
         messages = data.get("messages")
         think_option = data.get("think_option") # Can be True, "low", "medium", "high"
+        kb_ids = data.get("kb_ids", [])  # Knowledge base IDs for RAG
         
         if not model_name or not messages:
             return JSONResponse({"error": "Model and messages are required."}, status_code=400)
+        
+        # Get RAG context if knowledge bases are selected
+        rag_context = ""
+        if kb_ids:
+            try:
+                http_client: httpx.AsyncClient = request.app.state.http_client
+                rag_service = RAGService(http_client)
+                
+                # Get the last user message for RAG query
+                last_user_message = None
+                for msg in reversed(messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        if isinstance(msg.get("content"), str):
+                            last_user_message = msg["content"]
+                        elif isinstance(msg.get("content"), list):
+                            # Extract text from content array
+                            text_parts = [item.get("text", "") for item in msg["content"] if item.get("type") == "text"]
+                            last_user_message = " ".join(text_parts)
+                        break
+                
+                if last_user_message:
+                    all_chunks = []
+                    for kb_id in kb_ids:
+                        kb = await rag_crud.get_knowledge_base_by_id(db, kb_id)
+                        if kb and kb.is_active:
+                            chunks = await rag_service.retrieve_relevant_chunks(last_user_message, kb, db, top_k=3)
+                            all_chunks.extend(chunks)
+                    
+                    # Sort by relevance and take top 5
+                    all_chunks.sort(key=lambda x: x.get("distance", 1.0))
+                    top_chunks = all_chunks[:5]
+                    
+                    if top_chunks:
+                        rag_context = "\n\n--- Relevant Context from Knowledge Base ---\n\n"
+                        rag_context += "\n\n".join([
+                            f"[Source: {chunk['metadata'].get('document_name', 'Unknown')}]\n{chunk['content']}"
+                            for chunk in top_chunks
+                        ])
+                        rag_context += "\n\n--- End of Context ---\n\n"
+            except Exception as e:
+                logger.warning(f"Error fetching RAG context: {e}")
+                # Continue without RAG context if there's an error
+        
+        # Prepend RAG context to the first user message
+        if rag_context and messages:
+            for msg in messages:
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    if isinstance(msg.get("content"), str):
+                        msg["content"] = rag_context + msg["content"]
+                    elif isinstance(msg.get("content"), list):
+                        # Add context as first text item
+                        text_items = [item for item in msg["content"] if item.get("type") == "text"]
+                        if text_items:
+                            text_items[0]["text"] = rag_context + text_items[0].get("text", "")
+                    break
 
         http_client: httpx.AsyncClient = request.app.state.http_client
         

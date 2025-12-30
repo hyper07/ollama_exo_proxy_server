@@ -32,10 +32,11 @@ from app.api.v1.routes.proxy import router as proxy_router
 from app.api.v1.routes.admin import router as admin_router
 from app.api.v1.routes.playground_chat import router as playground_chat_router
 from app.api.v1.routes.playground_embedding import router as playground_embedding_router
+from app.api.v1.routes.rag import router as rag_router
 from app.api.v1.routes.exo_proxy import router as exo_proxy_router
 from app.api.v1.routes.api_tester import router as api_tester_router
 from app.database.session import database
-from app.database.models import User, UserRole, APIKey, UsageLog, ExoServer, AppSettings, ModelMetadata
+from app.database.models import User, UserRole, APIKey, UsageLog, ExoServer, AppSettings, ModelMetadata, KnowledgeBase, RAGDocument
 from beanie import init_beanie
 from app.crud import user_crud, server_crud, settings_crud
 from app.schema.user import UserCreate
@@ -60,7 +61,7 @@ async def init_db():
 
     logger.info("Initializing Beanie with MongoDB...")
 
-    await init_beanie(database=database, document_models=[User, APIKey, UsageLog, ExoServer, AppSettings, ModelMetadata])
+    await init_beanie(database=database, document_models=[User, APIKey, UsageLog, ExoServer, AppSettings, ModelMetadata, KnowledgeBase, RAGDocument])
     
     # Ensure unique indexes are created to prevent duplicate users
     try:
@@ -244,9 +245,16 @@ async def lifespan(app: FastAPI):
         app.state.redis = redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
         await app.state.redis.ping()
         logger.info("Successfully connected to Redis.")
+        
+        # Initialize cache service
+        from app.services.cache_service import CacheService
+        app.state.cache = CacheService(app.state.redis)
+        logger.info("KV Cache service initialized.")
     except Exception as exc:
-        logger.warning(f"Redis not available – rate limiting disabled. Reason: {exc}")
+        logger.warning(f"Redis not available – rate limiting and caching disabled. Reason: {exc}")
         app.state.redis = None
+        from app.services.cache_service import CacheService
+        app.state.cache = CacheService(None)  # Disabled cache
 
     import asyncio
     refresh_task = asyncio.create_task(periodic_model_refresh(app))
@@ -322,6 +330,7 @@ app.include_router(health_router, prefix="/api/v1", tags=["Health"])
 app.include_router(admin_router, prefix="/admin", tags=["Admin UI"], include_in_schema=False)
 app.include_router(playground_chat_router, prefix="/admin", tags=["Admin UI"], include_in_schema=False)
 app.include_router(playground_embedding_router, prefix="/admin", tags=["Admin UI"], include_in_schema=False)
+app.include_router(rag_router, prefix="/admin", tags=["RAG"], include_in_schema=False)
 app.include_router(exo_proxy_router, prefix="/admin", tags=["EXO API Tester"], include_in_schema=False)  # Admin-only, no API key required
 app.include_router(api_tester_router, prefix="/admin", tags=["API Tester"], include_in_schema=False)  # Admin-only, serves JavaScript for API tester
 app.include_router(proxy_router, prefix="/api", tags=["Exo Proxy"])  # Catch-all router should be last
