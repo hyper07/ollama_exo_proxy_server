@@ -74,71 +74,45 @@ Exo enables running massive AI models across multiple devices with automatic dis
 
 ### Key Benefits
 
-*   ✨ **Centralized Cluster Management:** Monitor and manage all your Exo nodes from a single web interface. Track model distribution, device health, and cluster performance.
-
 *   🛡️ **Rock-Solid Security:**
     *   **API Key Authentication:** Eliminate anonymous access to your AI clusters.
-    *   **One-Click HTTPS/SSL:** Encrypt all traffic with easy certificate management.
-    *   **IP Filtering:** Create granular allow/deny lists for cluster access control.
+    *   **Endpoint Blocking:** Prevent API key holders from accessing sensitive endpoints like `pull`, `delete`, and `create` to protect your servers from abuse.
+    *   **One-Click HTTPS/SSL:** Encrypt all traffic with easy certificate uploads or path-based configuration.
+    *   **IP Filtering:** Create granular allow/deny lists to control exactly which machines can connect.
     *   **Rate Limiting & Brute-Force Protection:** Prevent abuse and secure your admin interface (powered by Redis).
 
 *   🚀 **High-Performance Distributed Engine:**
-    *   **Intelligent Load Balancing:** Distribute inference requests across your Exo cluster for optimal performance.
-    *   **Smart Model Routing:** Automatically route requests to nodes with the required models available.
-    *   **Automatic Retries:** Handle node failures gracefully with exponential backoff.
-
-*   🧪 **Model Playgrounds & Benchmarking:**
-    *   **Interactive Chat Playground:** Test your distributed models with streaming responses, multi-modal inputs, and conversation management.
-    *   **RAG (Retrieval-Augmented Generation):** Build knowledge bases from your documents and enhance chat interactions with semantic search and context retrieval.
-
-*   📊 **Mission Control Dashboard:**
-    *   Real-time monitoring of cluster health, device utilization, and model performance.
-    *   Live load balancer status and queue monitoring.
-
-*   📈 **Comprehensive Analytics Suite:**
-    *   Interactive charts for request patterns, model usage, and cluster performance.
-    *   Per-user analytics with exportable data.
-
-*   🎨 **Radical Theming Engine:**
-
-*   ✨ **Centralized Model Management:** Pull, update, and delete models on any of your connected Exo servers directly from the proxy's web UI. No more terminal commands or switching between machines.
-
-*   🛡️ **Rock-Solid Security:**
-    *   **Endpoint Blocking:** Prevent API key holders from accessing sensitive endpoints like `pull`, `delete`, and `create` to protect your servers from abuse.
-    *   **API Key Authentication:** Eliminate anonymous access entirely.
-    *   **One-Click HTTPS/SSL:** Encrypt all traffic with easy certificate uploads or path-based configuration.
-    *   **IP Filtering:** Create granular allow/deny lists to control exactly which machines can connect.
-    *   **Rate Limiting & Brute-Force Protection:** Prevent abuse and secure your admin login (powered by Redis).
-
-*   🚀 **High-Performance Engine:**
     *   **Intelligent Load Balancing:** Distribute requests across multiple Exo servers, Ollama instances, or mixed clusters for maximum speed and high availability.
-    *   **Smart Model Routing:** Automatically sends requests only to servers that have the specific model available, preventing failed requests and saving compute resources.
-    *   **Automatic Retries:** The proxy resiliently handles temporary server hiccups with an exponential backoff strategy, making your AI services more reliable.
+    *   **Smart Model Routing:** Automatically route requests only to servers that have the specific model available, preventing failed requests and saving compute resources.
+    *   **Automatic Retries:** Handle temporary server hiccups gracefully with exponential backoff strategy.
     *   **Application-Level Management:** Built on Gunicorn for production-grade performance, allowing you to manage multiple cluster servers without Kubernetes complexity.
 
-*   🧪 **Model Playgrounds & Benchmarking:**
-    *   **Interactive Chat Playground:** Go beyond simple API calls. Chat with any model in a familiar interface that supports streaming, multi-modal inputs (paste images directly!), and full conversation history management (import/export).
-    *   **RAG Knowledge Bases:** Upload documents, automatically chunk and index them with vector embeddings, and retrieve relevant context during chat conversations for more accurate and informed responses.
+*   🌐 **Centralized Cluster & Model Management:**
+    *   Monitor and manage all your Exo nodes, Ollama servers, or mixed environments from a single web interface.
+    *   Pull, update, and delete models on any connected server directly from the proxy's web UI—no terminal commands required.
+    *   Track model distribution, device health, and cluster performance in real-time.
+    *   Add or remove servers dynamically through the web UI without infrastructure changes.
+
+*   🧪 **Model Playgrounds & RAG:**
+    *   **Interactive Chat Playground:** Test models with streaming responses, multi-modal inputs (paste images directly!), and full conversation history management (import/export).
+    *   **RAG Knowledge Bases:** Upload documents, automatically chunk and index them with vector embeddings, and retrieve relevant context during chat conversations for more accurate responses.
 
 *   📊 **Mission Control Dashboard:**
-    *   Real-time monitoring of your proxy's health (CPU, Memory, Disk), see all active models across all cluster nodes, monitor the **live health of your load balancer**, and watch API rate-limit queues fill and reset in real-time.
+    *   Real-time monitoring of proxy health (CPU, Memory, Disk), active models across all cluster nodes, live load balancer status, and API rate-limit queues.
 
 *   📈 **Comprehensive Analytics Suite:**
-    *   Don't just guess your usage—know it. Dive into beautiful, interactive charts for daily and hourly requests, model popularity, and cluster load.
-    *   With a single click, drill down into **per-user analytics** to understand individual usage patterns. All data is exportable to CSV or PNG.
-
-*   🎨 **Radical Theming Engine:**
-    *   Why should your tools be boring? Choose from over a dozen stunning UI themes to match your personal aesthetic. Whether you prefer a sleek **Material Design**, a futuristic **Cyberpunk** neon glow, a retro **CRT Terminal**, or a stark **Brutalist** look, you can make the interface truly yours.
+    *   Interactive charts for daily and hourly requests, model popularity, and cluster load.
+    *   Per-user analytics with exportable data (CSV or PNG).
 
 *   👤 **Granular User & API Key Management:**
-    *   Effortlessly create and manage users. The sortable user table gives you at-a-glance stats on key counts, total requests, and last activity.
-    *   From there, manage individual API keys with per-key rate limits, and temporarily disable or re-enable keys on the fly.
+    *   Create and manage users with sortable tables showing key counts, total requests, and last activity.
+    *   Manage individual API keys with per-key rate limits, and temporarily disable or re-enable keys on the fly.
 
-*   🌐 **Multi-Node Cluster Management:**
-    *   Centrally manage all your Exo cluster nodes, Ollama servers, or mixed environments at the **application level** (no Kubernetes required). The proxy load-balances requests and provides a unified, federated view of all available models from all your distributed devices combined. Add or remove servers dynamically through the web UI without infrastructure changes.
+*   🎨 **Radical Theming Engine:**
+    *   Choose from over a dozen stunning UI themes including Material Design, Cyberpunk, CRT Terminal, and Brutalist styles.
 
-*   ✨ **Effortless 1-Click Setup:**
-    *   No Docker, no `pip install`, no command-line wizardry required. Just download and run a single script.
+*   ✨ **Effortless Setup:**
+    *   One-command Docker deployment. No complex configuration required.
 
 ---
 
