@@ -424,59 +424,36 @@ curl -X POST http://localhost:8080/api/chat/completions \
 
 ## Visual Showcase
 
-### Step 1: Secure Admin Login
 
-Log in with the secure credentials you created during setup.
-
-![Secure Admin Login Page](assets/login.png)
-
-### Step 2: The Command Center Dashboard
+### Step 1: The Command Center Dashboard
 
 Your new mission control. Instantly see system health, active models, server status, and live rate-limit queues, all updating automatically.
 
-![Dashboard](assets/DashBoard.gif)
-
 ![Model List](assets/model_list.png)
 
-### Step 3: Manage Your Servers & Models
+### Step 2: Manage Your Servers & Models
 
 No more SSH or terminal juggling. Add all your Exo instances, then pull, update, and delete models on any server with a few clicks.
 
 ![EXO Cluster List](assets/exo_cluster_list.gif)
 
-### Step 4: Choose Your Look: The Theming Engine
 
-Navigate to the Settings page and instantly transform the entire UI. Pick a style that matches your mood or your desktop setup.
-
-![Theming](assets/theming.gif)
-
-### Step 5: Manage Users & Drill Down into Analytics
+### Step 3: Manage Users & Drill Down into Analytics
 
 The User Management page gives you a sortable, high-level overview. From here, click "View Usage" to dive into a dedicated analytics page for any specific user.
 
 ![User Management](assets/user_management.png)
 
-### Step 6: Test & Benchmark in the Playgrounds
+### Step 4: Test & Benchmark in the Playgrounds
 
 Use the built-in playground to evaluate your models. The **Chat Playground** provides a familiar UI to test conversational models with streaming and image support. You can also create **Knowledge Bases** and enable **RAG** to enhance your chat interactions with document context.
 
-### Step 6.5: EXO Master API Tester
+### Step 5: EXO Master API Tester
 
 Test the EXO Master API endpoints directly. This interface makes direct calls to your EXO instance (no proxy layer). Configure your EXO instance URL and test endpoints like `/models`, `/state`, and `/place_instance` with ease.
 
 ![EXO API Tester](assets/EXO API TESTER.gif)
 
-### Step 7: Master Your Analytics
-
-The main "Usage Stats" page and the per-user pages give you a beautiful, exportable overview of exactly how your models are being used.
-
-![API Usage Statistics](assets/stats.png)
-
-### Step 8: Get Help When You Need It
-
-The built-in Help page is now a rich document with a sticky table of contents that tracks your scroll position, making it effortless to find the information you need.
-
-![Help and Credits Page](assets/help.png)
 
 ---
 
