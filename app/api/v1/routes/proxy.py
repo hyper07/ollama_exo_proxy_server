@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import List, Tuple, Optional, Dict, Any
 from fastapi import APIRouter, Depends, Request, Response, HTTPException, status
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -217,16 +218,19 @@ async def proxy_chat_completion(
     """
     Proxy chat completion requests to EXO servers.
     Compatible with OpenAI API format.
+    For non-streaming requests, collects SSE chunks and assembles into single JSON response.
     """
     logger.info(f"POST /api/chat/completions endpoint called")
     
     body_bytes = await request.body()
     model_name = None
+    is_streaming = False
     
     if body_bytes:
         try:
             body = json.loads(body_bytes)
             model_name = body.get("model")
+            is_streaming = body.get("stream", False)
         except json.JSONDecodeError:
             pass
 
@@ -243,23 +247,296 @@ async def proxy_chat_completion(
                 f"Falling back to round-robin across all {len(servers)} active EXO server(s)."
             )
 
-    # Proxy to EXO server
-    response, chosen_server = await _reverse_proxy(request, "chat/completions", candidate_servers, body_bytes)
-
-    # Log usage (don't let logging errors break the API response)
-    try:
-        await log_crud.create_usage_log(
-            db=db,
-            api_key_id=api_key.id,
-            endpoint="/api/chat/completions",
-            status_code=response.status_code,
-            server_id=chosen_server.id,
-            model=model_name
+    # For streaming requests, return StreamingResponse directly
+    if is_streaming:
+        response, chosen_server = await _reverse_proxy(request, "chat/completions", candidate_servers, body_bytes)
+        
+        # Log usage (don't let logging errors break the API response)
+        try:
+            await log_crud.create_usage_log(
+                db=db,
+                api_key_id=api_key.id,
+                endpoint="/api/chat/completions",
+                status_code=response.status_code,
+                server_id=chosen_server.id,
+                model=model_name
+            )
+        except Exception as e:
+            logger.error(f"Failed to create usage log: {type(e).__name__}: {str(e)}")
+        
+        return response
+    
+    # For non-streaming requests, collect SSE chunks and assemble into single JSON response
+    # EXO always returns SSE format, so we need to collect and assemble
+    http_client: AsyncClient = request.app.state.http_client
+    
+    # Try each server in round-robin fashion
+    if not hasattr(request.app.state, 'backend_server_index'):
+        request.app.state.backend_server_index = 0
+    
+    num_servers = len(candidate_servers)
+    servers_tried = []
+    
+    for server_attempt in range(num_servers):
+        index = request.app.state.backend_server_index
+        chosen_server = candidate_servers[index % len(candidate_servers)]
+        request.app.state.backend_server_index = (index + 1) % len(candidate_servers)
+        
+        servers_tried.append(chosen_server.name)
+        
+        logger.info(
+            f"Attempting non-streaming request to EXO server '{chosen_server.name}' "
+            f"({server_attempt + 1}/{num_servers})"
         )
-    except Exception as e:
-        logger.error(f"Failed to create usage log: {type(e).__name__}: {str(e)}")
-
-    return response
+        
+        try:
+            normalized_url = chosen_server.url.rstrip('/')
+            backend_url = f"{normalized_url}/v1/chat/completions"
+            logger.info(f"Preparing request to EXO server: {backend_url}")
+            
+            # Prepare headers
+            headers = {k: v for k, v in request.headers.items() if k.lower() != 'host'}
+            # Ensure Content-Type is set
+            if 'content-type' not in headers:
+                headers["Content-Type"] = "application/json"
+            if chosen_server.encrypted_api_key:
+                api_key_decrypted = decrypt_data(chosen_server.encrypted_api_key)
+                if api_key_decrypted:
+                    headers["Authorization"] = f"Bearer {api_key_decrypted}"
+            
+            logger.info(f"Making request to EXO server: {backend_url}")
+            logger.debug(f"Request headers: {dict(headers)}")
+            logger.debug(f"Request body length: {len(body_bytes)} bytes")
+            
+            # Make request to EXO server with timeout
+            try:
+                logger.info(f"Opening connection to {backend_url}...")
+                logger.debug(f"Request body: {body_bytes.decode('utf-8')[:200]}...")
+                
+                # Use explicit timeout configuration - increased for large models
+                timeout_config = httpx.Timeout(300.0, connect=10.0, read=290.0, write=10.0, pool=10.0)
+                logger.info(f"Using timeout: connect=10s, read=290s, total=300s")
+                
+                # Wrap the entire operation with asyncio timeout to ensure it's enforced
+                async def process_request():
+                    async with http_client.stream(
+                        "POST",
+                        backend_url,
+                        headers=headers,
+                        content=body_bytes,
+                        timeout=timeout_config
+                    ) as response:
+                        logger.info(f"Connection established! Received response from EXO server: {response.status_code}")
+                        
+                        # Check for errors
+                        if response.status_code >= 400:
+                            error_text = await response.aread()
+                            error_str = error_text.decode()
+                            logger.error(f"EXO API error {response.status_code}: {error_str}")
+                            
+                            # Try to parse JSON error response
+                            try:
+                                error_json = json.loads(error_str)
+                                error_detail = error_json.get('detail', error_str)
+                            except:
+                                error_detail = error_str
+                            
+                            if response.status_code == 404:
+                                raise HTTPException(
+                                    status_code=404,
+                                    detail=f"Model not found or no instance running. {error_detail}"
+                                )
+                            else:
+                                raise HTTPException(
+                                    status_code=response.status_code,
+                                    detail=f"EXO API error: {error_detail}"
+                                )
+                        
+                        # Collect all SSE chunks
+                        full_content = ""
+                        last_response = None
+                        buffer = ""
+                        chunk_count = 0
+                        
+                        logger.info("Starting to collect SSE chunks from EXO server")
+                        async for chunk in response.aiter_bytes():
+                            chunk_count += 1
+                            if chunk_count == 1:
+                                logger.info(f"Received first chunk: {len(chunk)} bytes")
+                            chunk_text = chunk.decode('utf-8', errors='replace')
+                            buffer += chunk_text
+                            
+                            # Process complete SSE messages (separated by \n)
+                            while '\n' in buffer:
+                                line, buffer = buffer.split('\n', 1)
+                                line = line.strip()
+                                
+                                if not line:
+                                    continue
+                                
+                                # Parse SSE format: "data: {...}" or "data: [DONE]"
+                                if line.startswith('data: '):
+                                    json_str = line[6:].strip()  # Remove "data: " prefix
+                                    
+                                    if json_str == '[DONE]':
+                                        continue
+                                    
+                                    try:
+                                        chunk_data = json.loads(json_str)
+                                        
+                                        # Extract content from delta chunks
+                                        if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                            choice = chunk_data['choices'][0]
+                                            
+                                            # Check for content in delta
+                                            if 'delta' in choice and 'content' in choice['delta']:
+                                                content = choice['delta'].get('content', '')
+                                                if content:
+                                                    full_content += content
+                                            
+                                            # Check for finish_reason (indicates final chunk)
+                                            if 'finish_reason' in choice:
+                                                last_response = chunk_data
+                                            elif not last_response:
+                                                last_response = chunk_data
+                                        
+                                        # Also check if this chunk has usage info
+                                        if 'usage' in chunk_data and not last_response:
+                                            last_response = chunk_data
+                                            
+                                    except json.JSONDecodeError as e:
+                                        logger.warning(f"Failed to parse SSE chunk: {json_str[:100]}... Error: {e}")
+                                        continue
+                        
+                        # Process any remaining buffer
+                        if buffer.strip():
+                            for line in buffer.strip().split('\n'):
+                                line = line.strip()
+                                if line.startswith('data: '):
+                                    json_str = line[6:].strip()
+                                    if json_str and json_str != '[DONE]':
+                                        try:
+                                            chunk_data = json.loads(json_str)
+                                            if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
+                                                choice = chunk_data['choices'][0]
+                                                if 'delta' in choice and 'content' in choice['delta']:
+                                                    content = choice['delta'].get('content', '')
+                                                    if content:
+                                                        full_content += content
+                                                if not last_response or 'finish_reason' in choice:
+                                                    last_response = chunk_data
+                                        except json.JSONDecodeError:
+                                            pass
+                        
+                        # Build non-streaming response in OpenAI format
+                        if last_response:
+                            finish_reason = "stop"
+                            if 'choices' in last_response and len(last_response['choices']) > 0:
+                                finish_reason = last_response['choices'][0].get('finish_reason', 'stop')
+                            
+                            response_data = {
+                                "id": last_response.get("id", f"chatcmpl-{int(time.time())}"),
+                                "object": "chat.completion",
+                                "created": last_response.get("created", int(time.time())),
+                                "model": last_response.get("model", model_name or ""),
+                                "choices": [
+                                    {
+                                        "index": 0,
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": full_content
+                                        },
+                                        "finish_reason": finish_reason
+                                    }
+                                ],
+                                "usage": last_response.get("usage", {
+                                    "prompt_tokens": 0,
+                                    "completion_tokens": 0,
+                                    "total_tokens": 0
+                                })
+                            }
+                            
+                            logger.info(f"Assembled response with {len(full_content)} characters of content from {chunk_count} chunks")
+                            json_response = JSONResponse(content=response_data, status_code=200)
+                            
+                            # Log usage
+                            try:
+                                await log_crud.create_usage_log(
+                                    db=db,
+                                    api_key_id=api_key.id,
+                                    endpoint="/api/chat/completions",
+                                    status_code=200,
+                                    server_id=chosen_server.id,
+                                    model=model_name
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to create usage log: {type(e).__name__}: {str(e)}")
+                            
+                            return json_response
+                        else:
+                            logger.error("No response chunks received from EXO API")
+                            raise HTTPException(
+                                status_code=500,
+                                detail="No response chunks received from EXO API"
+                            )
+                
+                # Execute the request with a hard timeout - increased for large models
+                try:
+                    return await asyncio.wait_for(process_request(), timeout=300.0)
+                except asyncio.TimeoutError:
+                    logger.error(f"Request to EXO server '{chosen_server.name}' timed out after 300 seconds")
+                    raise httpx.TimeoutException("Request timed out after 300 seconds")
+                    
+            except httpx.TimeoutException as e:
+                logger.error(f"Timeout connecting to EXO server '{chosen_server.name}': {e}")
+                if server_attempt == num_servers - 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        detail=f"Timeout connecting to EXO server after 300 seconds. The server may be overloaded or the model may not be available. Tried: {', '.join(servers_tried)}"
+                    )
+                continue
+            except httpx.RequestError as e:
+                logger.error(f"Request error connecting to EXO server '{chosen_server.name}': {e}")
+                if server_attempt == num_servers - 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail=f"Failed to connect to EXO server. Tried: {', '.join(servers_tried)}"
+                    )
+                continue
+            except httpx.TimeoutException as e:
+                logger.error(f"Timeout connecting to EXO server '{chosen_server.name}': {e}")
+                if server_attempt == num_servers - 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                        detail=f"Timeout connecting to EXO server after 30 seconds. The server may be overloaded or the model may not be available. Tried: {', '.join(servers_tried)}"
+                    )
+                continue
+            except httpx.RequestError as e:
+                logger.error(f"Request error connecting to EXO server '{chosen_server.name}': {e}")
+                if server_attempt == num_servers - 1:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail=f"Failed to connect to EXO server. Tried: {', '.join(servers_tried)}"
+                    )
+                continue
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"EXO server '{chosen_server.name}' failed: {type(e).__name__}: {str(e)}", exc_info=True)
+            if server_attempt == num_servers - 1:
+                # Last server, raise error
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail=f"All EXO servers unavailable. Tried: {', '.join(servers_tried)}"
+                )
+            # Try next server
+            continue
+    
+    # Should not reach here, but just in case
+    raise HTTPException(
+        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        detail=f"All EXO servers unavailable. Tried: {', '.join(servers_tried)}"
+    )
 
 
 # --- Models/Tags Endpoints ---
